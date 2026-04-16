@@ -13,9 +13,8 @@ venv/
 .venv/
 pip-log.txt
 
-# ---- ML Model files (too large for GitHub, regenerate via train_model.py) ----
-*.pkl
-*.pickle
+# ---- NOTE: .pkl model files ARE included (attack_model.pkl ~24 MB, under GitHub's 100 MB limit) ----
+# To regenerate locally: python train_model.py
 
 # ---- Dataset (25 MB+ raw data) ----
 KDDTrain+.txt
