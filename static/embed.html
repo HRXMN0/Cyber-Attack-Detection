@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Deploy Agent — SOC Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Inter',sans-serif;background:#0a0e1a;color:#e8eaf6;min-height:100vh;padding:32px;}
+    h1{font-size:1.6rem;font-weight:800;margin-bottom:6px;color:#00e5ff;}
+    .sub{color:#8892b0;font-size:0.85rem;margin-bottom:32px;}
+    .card{background:rgba(15,22,41,0.8);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px 28px;margin-bottom:24px;}
+    .card-title{font-size:1rem;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+    .sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:6px;}
+    .site-item{background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:16px 18px;}
+    .site-name{font-weight:700;font-size:0.95rem;margin-bottom:2px;}
+    .site-url{font-size:0.72rem;color:#8892b0;font-family:'JetBrains Mono',monospace;margin-bottom:10px;}
+    .site-id-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
+    .label{font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#8892b0;font-weight:600;}
+    .val{font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:#00ff88;word-break:break-all;}
+    .copy-btn{padding:4px 10px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.1);color:#00e5ff;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600;white-space:nowrap;transition:.2s;}
+    .copy-btn:hover{background:rgba(0,229,255,0.2);}
+    .code-block{background:#020509;border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#3bffb8;overflow-x:auto;position:relative;margin-top:6px;}
+    .code-block .comment{color:#4a5568;}
+    .code-block .attr{color:#00e5ff;}
+    .code-block .val2{color:#ffd600;}
+    .copy-full{position:absolute;top:12px;right:12px;padding:5px 12px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.1);color:#00e5ff;border-radius:6px;cursor:pointer;font-size:0.72rem;font-weight:700;}
+    .copy-full:hover{background:rgba(0,229,255,0.2);}
+    .steps{counter-reset:steps;}
+    .step{counter-increment:steps;display:flex;gap:16px;margin-bottom:18px;align-items:flex-start;}
+    .step-num{min-width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e5ff22,#00e5ff44);border:1px solid #00e5ff55;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:#00e5ff;}
+    .step-content p{font-size:0.88rem;color:#8892b0;margin-top:4px;}
+    .step-title{font-weight:700;font-size:0.95rem;}
+    .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:0.68rem;font-weight:700;background:rgba(0,229,255,0.12);color:#00e5ff;margin-left:6px;}
+    .alert-box{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:10px;padding:14px 18px;font-size:0.83rem;color:#00ff88;margin-top:16px;}
+  </style>
+</head>
+<body>
+  <h1>⚙️ Deploy Monitoring Agent</h1>
+  <div class="sub">Embed a 2-line script tag into any website to start real-time attack monitoring. No setup required.</div>
+
+  <!-- Sites -->
+  <div class="card">
+    <div class="card-title">🌐 Registered Sites <span class="tag" id="siteCount">Loading…</span></div>
+    <div class="sites-grid" id="sitesGrid">
+      <div style="color:#8892b0;font-size:.85rem;">Loading sites…</div>
+    </div>
+  </div>
+
+  <!-- Embed Instructions -->
+  <div class="card">
+    <div class="card-title">📋 How to Deploy</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <div class="step-title">Choose a site above and copy its API Key</div>
+          <p>Each registered site has a unique <code>site_id</code> and <code>api_key</code> shown above.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <div class="step-title">Paste the snippet into your website's &lt;head&gt;</div>
+          <p>Replace <code>YOUR_SITE_ID</code> and <code>YOUR_API_KEY</code> with your values.</p>
+          <div class="code-block" id="snippetBlock">
+            <button class="copy-full" onclick="copySnippet()">Copy</button>
+<span class="comment">&lt;!-- SOC Monitoring Agent --&gt;</span>
+<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"http://127.0.0.1:5000/static/agent.js"</span>
+        <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>
+        <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span><span style="color:#e8eaf6;">&gt;&lt;/script&gt;</span>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <div class="step-title">Open the Site Monitor tab on the dashboard</div>
+          <p>Select your site from the dropdown — real-time attack data will appear within seconds.</p>
+        </div>
+      </div>
+    </div>
+    <div class="alert-box">✅ The agent is fully silent — no UI changes on the monitored website, no cookies set, under 5 KB total. Works on any HTML site.</div>
+  </div>
+
+  <!-- Test via curl -->
+  <div class="card">
+    <div class="card-title">🧪 Test via PowerShell / curl</div>
+    <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">You can simulate a monitored site sending attack data manually:</p>
+    <div class="code-block" style="color:#e8eaf6;">
+      <button class="copy-full" onclick="copyCurl()">Copy</button>
+<span style="color:#8892b0;"># PowerShell</span>
+Invoke-RestMethod -Uri <span style="color:#ffd600;">"http://127.0.0.1:5000/api/agent/report"</span> `
+  -Method POST -ContentType <span style="color:#ffd600;">"application/json"</span> `
+  -Body <span style="color:#ffd600;">'{"site_id":"gov-portal","api_key":"demo","ip":"218.92.0.142",
+  "method":"POST","path":"/admin/login","user_agent":"python-requests/2.28",
+  "referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'</span>
+    </div>
+  </div>
+
+  <script>
+    const ADMIN_KEY = "soc-admin-secret-change-me"; // match SOC_ADMIN_KEY env var
+    async function loadSites() {
+      try {
+        const res   = await fetch("/api/admin/sites", {
+          headers: { "X-Admin-Key": ADMIN_KEY }
+        });
+        if (res.status === 403) {
+          document.getElementById("sitesGrid").innerHTML = '<div style="color:#ff1744">⛔ Admin key invalid. Set SOC_ADMIN_KEY env var.</div>';
+          return;
+        }
+        const sites = await res.json();
+        document.getElementById("siteCount").textContent = sites.length + " sites";
+        document.getElementById("sitesGrid").innerHTML = sites.map(s => `
+          <div class="site-item">
+            <div class="site-name">🌐 ${s.name}</div>
+            <div class="site-url">${s.url}</div>
+            <div class="site-id-row">
+              <div><div class="label">Site ID</div><div class="val">${s.id}</div></div>
+              <button class="copy-btn" onclick="copyText('${s.id}')">Copy ID</button>
+            </div>
+            <div class="site-id-row">
+              <div><div class="label">API Key</div><div class="val">${s.api_key}</div></div>
+              <button class="copy-btn" onclick="copyText('${s.api_key}')">Copy Key</button>
+            </div>
+          </div>`).join("");
+      } catch(e) {
+        document.getElementById("sitesGrid").innerHTML = '<div style="color:#ff1744">Failed to load sites. Is the server running?</div>';
+      }
+    }
+
+    function copyText(t){ navigator.clipboard.writeText(t).catch(()=>{}); }
+    function copySnippet(){
+      const txt = `<!-- SOC Monitoring Agent -->\n<script src="http://127.0.0.1:5000/static/agent.js"\n        data-site="YOUR_SITE_ID"\n        data-key="YOUR_API_KEY"><\/script>`;
+      navigator.clipboard.writeText(txt).catch(()=>{});
+    }
+    function copyCurl(){
+      const txt = `Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/agent/report" \`\n  -Method POST -ContentType "application/json" \`\n  -Body '{"site_id":"gov-portal","api_key":"demo","ip":"218.92.0.142","method":"POST","path":"/admin/login","user_agent":"python-requests/2.28","referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'`;
+      navigator.clipboard.writeText(txt).catch(()=>{});
+    }
+    loadSites();
+  </script>
+</body>
+</html>

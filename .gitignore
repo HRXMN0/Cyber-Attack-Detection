@@ -1,0 +1,43 @@
+# =============================================================================
+# .gitignore — Cyber Attack Detection System
+# =============================================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# ---- ML Model files (too large for GitHub, regenerate via train_model.py) ----
+*.pkl
+*.pickle
+
+# ---- Dataset (25 MB+ raw data) ----
+KDDTrain+.txt
+KDDTest+.txt
+dataset/
+
+# ---- Database (runtime data, not source code) ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- Secrets / Environment ----
+.env
+.env.*
+*.key
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.code-workspace
