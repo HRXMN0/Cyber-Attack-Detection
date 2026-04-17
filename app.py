@@ -23,8 +23,17 @@ import pickle
 import hashlib
 import hmac
 
+import bcrypt
 import pandas as pd
-from flask import Flask, jsonify, request, send_from_directory
+from flask import (
+    Flask, jsonify, request, send_from_directory,
+    redirect, url_for, flash, render_template,
+    session, make_response,
+)
+from flask_login import (
+    LoginManager, UserMixin, login_user, logout_user,
+    login_required, current_user,
+)
 
 from utils import get_response, get_severity
 from database import (
@@ -34,6 +43,7 @@ from database import (
     db_add_history, db_get_history_count,
     db_increment_failed, db_get_failed_count,
     db_get_sites, db_validate_api_key, db_get_logs_by_site,
+    db_create_user, db_get_user_by_email, db_get_user_by_id,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,10 +77,31 @@ def _check_admin(req) -> bool:
     return hmac.compare_digest(key, ADMIN_KEY)
 
 # ---------------------------------------------------------------------------
-# 3. Flask app initialisation
+# 3. Flask app initialisation + Auth
 # ---------------------------------------------------------------------------
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-app = Flask(__name__, static_folder=STATIC_DIR)
+TEMPLATE_DIR = os.path.join(BASE_DIR, "static")
+app = Flask(__name__, static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
+app.secret_key = os.environ.get("SECRET_KEY", "soc-super-secret-flask-key-change-in-prod")
+
+# Flask-Login
+login_manager = LoginManager(app)
+login_manager.login_view = "auth_login"
+login_manager.login_message = "Please login to access the SOC dashboard."
+login_manager.login_message_category = "error"
+
+class User(UserMixin):
+    """Lightweight user object for Flask-Login."""
+    def __init__(self, data: dict):
+        self.id           = data["id"]
+        self.name         = data["name"]
+        self.email        = data["email"]
+        self.role         = data["role"]
+
+@login_manager.user_loader
+def load_user(user_id):
+    data = db_get_user_by_id(int(user_id))
+    return User(data) if data else None
 
 
 @app.after_request
@@ -170,16 +201,89 @@ def _country_name(code: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 5. Routes
+# 5. Auth Routes
+# ---------------------------------------------------------------------------
+
+@app.route("/auth/login", methods=["GET", "POST"])
+def auth_login():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        email    = request.form.get("email", "").lower().strip()
+        password = request.form.get("password", "").encode()
+        user_data = db_get_user_by_email(email)
+        if not user_data or not user_data.get("password_hash"):
+            flash("Invalid email or password.", "error")
+            return redirect(url_for("auth_login"))
+        if not bcrypt.checkpw(password, user_data["password_hash"].encode()):
+            flash("Invalid email or password.", "error")
+            return redirect(url_for("auth_login"))
+        user = User(user_data)
+        login_user(user, remember=True)
+        flash(f"Welcome back, {user.name}! 👋", "success")
+        return redirect(url_for("index"))
+    return render_template("login.html")
+
+
+@app.route("/auth/signup", methods=["GET", "POST"])
+def auth_signup():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        first  = request.form.get("first_name", "").strip()
+        last   = request.form.get("last_name",  "").strip()
+        name   = f"{first} {last}".strip() or first
+        email  = request.form.get("email", "").lower().strip()
+        pwd    = request.form.get("password", "")
+        cpwd   = request.form.get("confirm_password", "")
+
+        if not name or not email or not pwd:
+            flash("All fields are required.", "error")
+            return redirect(url_for("auth_signup"))
+        if len(pwd) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("auth_signup"))
+        if pwd != cpwd:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("auth_signup"))
+        if db_get_user_by_email(email):
+            flash("An account with this email already exists.", "error")
+            return redirect(url_for("auth_signup"))
+
+        pwd_hash = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
+        uid = db_create_user(name, email, pwd_hash)
+        if not uid:
+            flash("Could not create account. Please try again.", "error")
+            return redirect(url_for("auth_signup"))
+
+        user_data = db_get_user_by_id(uid)
+        login_user(User(user_data), remember=True)
+        flash(f"Account created! Welcome, {name}. 🎉", "success")
+        return redirect(url_for("index"))
+    return render_template("signup.html")
+
+
+@app.route("/auth/logout")
+@login_required
+def auth_logout():
+    logout_user()
+    flash("You have been logged out.", "success")
+    return redirect(url_for("auth_login"))
+
+
+# ---------------------------------------------------------------------------
+# 6. Main Routes (protected)
 # ---------------------------------------------------------------------------
 
 @app.route("/", methods=["GET"])
+@login_required
 def index():
     """Serve the SOC dashboard UI."""
     return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/embed", methods=["GET"])
+@login_required
 def embed():
     """Serve the agent embed instructions page."""
     return send_from_directory(STATIC_DIR, "embed.html")
@@ -188,6 +292,19 @@ def embed():
 @app.route("/api/status", methods=["GET"])
 def api_status():
     return jsonify({"status": "ok", "message": "Website Running Securely"}), 200
+
+
+@app.route("/api/me", methods=["GET"])
+@login_required
+def api_me():
+    """Return current logged-in user info for the dashboard header."""
+    return jsonify({
+        "id":    current_user.id,
+        "name":  current_user.name,
+        "email": current_user.email,
+        "role":  current_user.role,
+    }), 200
+
 
 
 # ---- Original login endpoint (unchanged) ----

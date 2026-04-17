@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sign Up — AI Cyber SOC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{--neon-cyan:#00e5ff;--neon-green:#00ff88;--neon-red:#ff1744;--bg:#060b18;--card-bg:rgba(10,20,40,0.85);--border:rgba(0,229,255,0.15);--text:#e8eaf6;--sub:#8892b0;}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:24px 0;}
+    .bg-grid{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);background-size:44px 44px;animation:gridMove 20s linear infinite;}
+    @keyframes gridMove{0%{background-position:0 0}100%{background-position:44px 44px}}
+    .orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.18;animation:orbFloat 8s ease-in-out infinite;}
+    .orb1{width:400px;height:400px;background:#7c4dff;top:-100px;right:-100px;animation-delay:0s;}
+    .orb2{width:300px;height:300px;background:#00e5ff;bottom:-80px;left:-80px;animation-delay:-4s;}
+    @keyframes orbFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-30px)}}
+    .card{position:relative;z-index:10;width:100%;max-width:430px;padding:40px;background:var(--card-bg);border:1px solid var(--border);border-radius:20px;backdrop-filter:blur(20px);box-shadow:0 0 80px rgba(124,77,255,0.07),0 30px 60px rgba(0,0,0,0.5);animation:cardIn .5s cubic-bezier(.22,1,.36,1);}
+    @keyframes cardIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+    .logo{display:flex;align-items:center;gap:12px;margin-bottom:24px;}
+    .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,#7c4dff22,#7c4dff55);border:1px solid #7c4dff44;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
+    .logo-text{font-size:1rem;font-weight:700;color:var(--neon-cyan);}
+    .logo-sub{font-size:0.7rem;color:var(--sub);}
+    h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
+    .subtitle{color:var(--sub);font-size:0.85rem;margin-bottom:24px;}
+    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:14px;font-weight:500;}
+    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .form-group{margin-bottom:14px;position:relative;}
+    label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
+    input{width:100%;padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text);font-family:'Inter',sans-serif;font-size:0.9rem;transition:border-color .2s,box-shadow .2s;outline:none;}
+    input:focus{border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,229,255,0.1);}
+    input::placeholder{color:#4a5568;}
+
+    /* Password strength */
+    .strength-bar{height:3px;border-radius:99px;background:rgba(255,255,255,0.07);margin-top:6px;overflow:hidden;}
+    .strength-fill{height:100%;border-radius:99px;transition:width .3s,background .3s;width:0%;}
+    .strength-label{font-size:0.68rem;color:var(--sub);margin-top:4px;display:flex;justify-content:flex-end;}
+
+    .pwd-wrap{position:relative;}
+    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--sub);cursor:pointer;font-size:1rem;padding:4px;}
+    .pwd-toggle:hover{color:var(--neon-cyan);}
+
+    .btn-primary{width:100%;padding:13px;margin-top:6px;background:linear-gradient(135deg,#7c4dff,#aa00ff);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;transition:.2s;letter-spacing:.3px;}
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(124,77,255,0.35);}
+    .btn-primary:active{transform:none;}
+
+    .divider{display:flex;align-items:center;gap:12px;margin:18px 0;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.08);}
+    .divider span{color:var(--sub);font-size:0.75rem;}
+
+    .terms{font-size:0.75rem;color:var(--sub);text-align:center;margin-top:14px;}
+    .terms a{color:var(--neon-cyan);text-decoration:none;}
+    .footer-link{text-align:center;margin-top:18px;font-size:0.83rem;color:var(--sub);}
+    .footer-link a{color:var(--neon-cyan);text-decoration:none;font-weight:600;}
+    .footer-link a:hover{text-decoration:underline;}
+    .secure-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:18px;font-size:0.72rem;color:#4a5568;}
+    .secure-badge svg{width:13px;height:13px;fill:#4a5568;}
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-text">AI Cyber SOC</div>
+        <div class="logo-sub">Security Operations Center</div>
+      </div>
+    </div>
+
+    <h1>Create account</h1>
+    <div class="subtitle">Join the SOC and start monitoring threats</div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="/auth/signup">
+      <div class="form-row">
+        <div class="form-group">
+          <label>First Name</label>
+          <input type="text" name="first_name" placeholder="Arjun" required/>
+        </div>
+        <div class="form-group">
+          <label>Last Name</label>
+          <input type="text" name="last_name" placeholder="Sharma"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" name="password" id="pwdField" placeholder="Min. 8 characters" required oninput="checkStrength(this.value)" autocomplete="new-password"/>
+          <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField')">👁</button>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strengthFill"></div></div>
+        <div class="strength-label"><span id="strengthLabel"></span></div>
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <div class="pwd-wrap">
+          <input type="password" name="confirm_password" id="pwdField2" placeholder="Repeat password" required autocomplete="new-password"/>
+          <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField2')">👁</button>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary">Create Account →</button>
+    </form>
+
+    <div class="divider"><span>or</span></div>
+
+    <div class="footer-link">Already have an account? <a href="/auth/login">Sign in</a></div>
+
+    <div class="secure-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+      Passwords hashed with bcrypt · Never stored in plain text
+    </div>
+  </div>
+
+  <script>
+    function togglePwd(id){const f=document.getElementById(id);f.type=f.type==='password'?'text':'password';}
+    function checkStrength(v){
+      const fill=document.getElementById('strengthFill'),lbl=document.getElementById('strengthLabel');
+      let score=0;
+      if(v.length>=8)score++;if(v.length>=12)score++;
+      if(/[A-Z]/.test(v))score++;if(/[0-9]/.test(v))score++;if(/[^A-Za-z0-9]/.test(v))score++;
+      const levels=[
+        {w:'0%',c:'',t:''},
+        {w:'25%',c:'#ff1744',t:'Weak'},
+        {w:'50%',c:'#ff9100',t:'Fair'},
+        {w:'75%',c:'#ffd600',t:'Good'},
+        {w:'100%',c:'#00ff88',t:'Strong'},
+      ];
+      const l=levels[Math.min(score,4)];
+      fill.style.width=l.w;fill.style.background=l.c;lbl.textContent=l.t;lbl.style.color=l.c;
+    }
+  </script>
+</body>
+</html>

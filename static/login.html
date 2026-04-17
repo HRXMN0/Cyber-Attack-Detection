@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login — AI Cyber SOC</title>
+  <meta name="description" content="Login to the AI Cyber Attack Detection SOC Dashboard"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{
+      --neon-cyan:#00e5ff;--neon-green:#00ff88;--neon-red:#ff1744;
+      --bg:#060b18;--card-bg:rgba(10,20,40,0.85);
+      --border:rgba(0,229,255,0.15);--text:#e8eaf6;--sub:#8892b0;
+    }
+    body{
+      font-family:'Inter',sans-serif;background:var(--bg);
+      color:var(--text);min-height:100vh;
+      display:flex;align-items:center;justify-content:center;
+      overflow:hidden;position:relative;
+    }
+
+    /* ---- Animated grid background ---- */
+    .bg-grid{
+      position:fixed;inset:0;z-index:0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);
+      background-size:44px 44px;
+      animation:gridMove 20s linear infinite;
+    }
+    @keyframes gridMove{0%{background-position:0 0}100%{background-position:44px 44px}}
+
+    /* ---- Glowing orbs ---- */
+    .orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.18;animation:orbFloat 8s ease-in-out infinite;}
+    .orb1{width:400px;height:400px;background:#00e5ff;top:-100px;left:-100px;animation-delay:0s;}
+    .orb2{width:300px;height:300px;background:#7c4dff;bottom:-80px;right:-80px;animation-delay:-3s;}
+    .orb3{width:200px;height:200px;background:#00ff88;top:50%;left:60%;animation-delay:-6s;}
+    @keyframes orbFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-30px) scale(1.08)}}
+
+    /* ---- Card ---- */
+    .card{
+      position:relative;z-index:10;
+      width:100%;max-width:420px;padding:44px 40px;
+      background:var(--card-bg);
+      border:1px solid var(--border);
+      border-radius:20px;
+      backdrop-filter:blur(20px);
+      box-shadow:0 0 80px rgba(0,229,255,0.07),0 30px 60px rgba(0,0,0,0.5);
+      animation:cardIn .5s cubic-bezier(.22,1,.36,1);
+    }
+    @keyframes cardIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+
+    /* ---- Logo ---- */
+    .logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;}
+    .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,#00e5ff22,#00e5ff55);border:1px solid #00e5ff44;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
+    .logo-text{font-size:1rem;font-weight:700;color:var(--neon-cyan);}
+    .logo-sub{font-size:0.7rem;color:var(--sub);}
+
+    h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
+    .subtitle{color:var(--sub);font-size:0.85rem;margin-bottom:28px;}
+
+    /* ---- Flash messages ---- */
+    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:16px;font-weight:500;}
+    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
+
+    /* ---- Form ---- */
+    .form-group{margin-bottom:16px;position:relative;}
+    label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
+    input{
+      width:100%;padding:12px 14px;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.1);
+      border-radius:10px;color:var(--text);
+      font-family:'Inter',sans-serif;font-size:0.9rem;
+      transition:border-color .2s,box-shadow .2s;outline:none;
+    }
+    input:focus{border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,229,255,0.1);}
+    input::placeholder{color:#4a5568;}
+
+    /* ---- Password toggle ---- */
+    .pwd-wrap{position:relative;}
+    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--sub);cursor:pointer;font-size:1rem;padding:4px;}
+    .pwd-toggle:hover{color:var(--neon-cyan);}
+
+    /* ---- Submit ---- */
+    .btn-primary{
+      width:100%;padding:13px;margin-top:6px;
+      background:linear-gradient(135deg,#00b4d8,#00e5ff);
+      border:none;border-radius:10px;
+      color:#060b18;font-weight:700;font-size:0.95rem;
+      cursor:pointer;transition:.2s;letter-spacing:.3px;
+    }
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,229,255,0.3);}
+    .btn-primary:active{transform:none;}
+
+    /* ---- Divider ---- */
+    .divider{display:flex;align-items:center;gap:12px;margin:20px 0;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.08);}
+    .divider span{color:var(--sub);font-size:0.75rem;}
+
+    /* ---- Footer link ---- */
+    .footer-link{text-align:center;margin-top:22px;font-size:0.83rem;color:var(--sub);}
+    .footer-link a{color:var(--neon-cyan);text-decoration:none;font-weight:600;}
+    .footer-link a:hover{text-decoration:underline;}
+
+    /* ---- Secure badge ---- */
+    .secure-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:0.72rem;color:#4a5568;}
+    .secure-badge svg{width:13px;height:13px;fill:#4a5568;}
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-text">AI Cyber SOC</div>
+        <div class="logo-sub">Security Operations Center</div>
+      </div>
+    </div>
+
+    <h1>Welcome back</h1>
+    <div class="subtitle">Sign in to access your SOC dashboard</div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="/auth/login">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" name="password" id="pwdField" placeholder="••••••••" required autocomplete="current-password"/>
+          <button type="button" class="pwd-toggle" onclick="togglePwd()" title="Show/Hide password">👁</button>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary">Sign In →</button>
+    </form>
+
+    <div class="divider"><span>or</span></div>
+
+    <div class="footer-link">
+      Don't have an account? <a href="/auth/signup">Create one</a>
+    </div>
+
+    <div class="secure-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+      Secured · All sessions encrypted
+    </div>
+  </div>
+
+  <script>
+    function togglePwd(){
+      const f=document.getElementById('pwdField');
+      f.type=f.type==='password'?'text':'password';
+    }
+  </script>
+</body>
+</html>

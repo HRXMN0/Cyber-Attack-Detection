@@ -402,6 +402,14 @@ document.addEventListener("DOMContentLoaded",()=>{
 
   initTheme();initCharts();
 
+  // Load current user info into header
+  fetch(BASE_URL + "/api/me").then(r=>r.json()).then(u=>{
+    const nameEl = document.getElementById("userNameDisplay");
+    const roleEl = document.getElementById("userRoleDisplay");
+    if(nameEl) nameEl.textContent = u.name || "Analyst";
+    if(roleEl) roleEl.textContent = (u.role || "analyst").toUpperCase();
+  }).catch(()=>{});
+
   addTerminalLog("SOC Dashboard v2.0 initializing...","ok");
   addTerminalLog("Loading ML model: attack_model.pkl — RandomForest (500 estimators)","info");
   addTerminalLog("Database connected: SQLite @ ./cyber_attacks.db","info");

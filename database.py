@@ -68,6 +68,14 @@ def init_db():
                 api_key     TEXT NOT NULL UNIQUE,
                 created_at  TEXT DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS users (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL,
+                email        TEXT NOT NULL UNIQUE,
+                password_hash TEXT,
+                role         TEXT NOT NULL DEFAULT 'analyst',
+                created_at   TEXT DEFAULT (datetime('now'))
+            );
             CREATE INDEX IF NOT EXISTS idx_log_ip       ON attack_log(ip);
             CREATE INDEX IF NOT EXISTS idx_log_severity ON attack_log(severity);
             CREATE INDEX IF NOT EXISTS idx_history_ip   ON attack_history(ip);
@@ -346,3 +354,41 @@ def _seed_demo_sites():
     db_register_site("finance-dept",  "Finance Department",   "https://finance.example.in")
     db_register_site("local",         "Local SOC Backend",    "http://127.0.0.1:5000")
     print("[DB] Seeded 3 demo monitored sites.")
+
+
+# ---------------------------------------------------------------------------
+# Users (Authentication)
+# ---------------------------------------------------------------------------
+
+def db_create_user(name: str, email: str, password_hash: str, role: str = "analyst") -> int | None:
+    """Create a new user. Returns new user id, or None if email exists."""
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
+                (name, email, password_hash, role),
+            )
+            return cursor.lastrowid
+    except Exception:
+        return None
+
+
+def db_get_user_by_email(email: str) -> dict | None:
+    """Fetch user dict by email, or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = ?",
+            (email.lower().strip(),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def db_get_user_by_id(user_id: int) -> dict | None:
+    """Fetch user dict by primary key id, or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, password_hash, role, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
