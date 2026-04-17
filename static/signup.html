@@ -114,6 +114,22 @@
           <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField2')">👁</button>
         </div>
       </div>
+
+      <!-- Organisation Site Linking -->
+      <div style="border-top:1px solid rgba(255,255,255,0.07);margin:8px 0 16px;"></div>
+      <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#8892b0;margin-bottom:10px;">🔗 Link to Your Organisation's Site <span style="font-weight:400;color:#4a5568;text-transform:none;letter-spacing:0;">(optional)</span></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Site ID</label>
+          <input type="text" name="site_id" placeholder="e.g. gov-portal" autocomplete="off"/>
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="text" name="api_key" placeholder="Paste your API key" autocomplete="off"/>
+        </div>
+      </div>
+      <div style="font-size:0.72rem;color:#4a5568;margin-top:-8px;margin-bottom:14px;">Get your Site ID &amp; API Key from the <strong style="color:#8892b0;">Deploy Agent</strong> tab on the SOC dashboard.</div>
+
       <button type="submit" class="btn-primary">Create Account →</button>
     </form>
 

@@ -74,6 +74,7 @@ def init_db():
                 email        TEXT NOT NULL UNIQUE,
                 password_hash TEXT,
                 role         TEXT NOT NULL DEFAULT 'analyst',
+                site_id      TEXT REFERENCES sites(id),
                 created_at   TEXT DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_log_ip       ON attack_log(ip);
@@ -99,7 +100,12 @@ def init_db():
                     f"ALTER TABLE attack_log ADD COLUMN {col} {col_type} DEFAULT {default}"
                 )
 
-        # Step 3: Now safe to create site_id index
+        # Step 3: Migrate users table — add site_id if missing
+        user_cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "site_id" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN site_id TEXT REFERENCES sites(id)")
+
+        # Step 4: Now safe to create site_id index
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_log_site ON attack_log(site_id)"
         )
@@ -360,13 +366,13 @@ def _seed_demo_sites():
 # Users (Authentication)
 # ---------------------------------------------------------------------------
 
-def db_create_user(name: str, email: str, password_hash: str, role: str = "analyst") -> int | None:
+def db_create_user(name: str, email: str, password_hash: str, role: str = "analyst", site_id: str = None) -> int | None:
     """Create a new user. Returns new user id, or None if email exists."""
     try:
         with get_db() as conn:
             cursor = conn.execute(
-                "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
-                (name, email, password_hash, role),
+                "INSERT INTO users (name, email, password_hash, role, site_id) VALUES (?, ?, ?, ?, ?)",
+                (name, email, password_hash, role, site_id),
             )
             return cursor.lastrowid
     except Exception:
@@ -377,7 +383,7 @@ def db_get_user_by_email(email: str) -> dict | None:
     """Fetch user dict by email, or None."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = ?",
+            "SELECT id, name, email, password_hash, role, site_id, created_at FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
     return dict(row) if row else None
@@ -387,7 +393,7 @@ def db_get_user_by_id(user_id: int) -> dict | None:
     """Fetch user dict by primary key id, or None."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, email, password_hash, role, created_at FROM users WHERE id = ?",
+            "SELECT id, name, email, password_hash, role, site_id, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     return dict(row) if row else None

@@ -93,10 +93,11 @@ login_manager.login_message_category = "error"
 class User(UserMixin):
     """Lightweight user object for Flask-Login."""
     def __init__(self, data: dict):
-        self.id           = data["id"]
-        self.name         = data["name"]
-        self.email        = data["email"]
-        self.role         = data["role"]
+        self.id      = data["id"]
+        self.name    = data["name"]
+        self.email   = data["email"]
+        self.role    = data["role"]
+        self.site_id = data.get("site_id")  # None = admin/SOC (sees everything)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -250,15 +251,29 @@ def auth_signup():
             flash("An account with this email already exists.", "error")
             return redirect(url_for("auth_signup"))
 
+        # Optional: link to a site via site_id + api_key
+        site_id_input = request.form.get("site_id", "").strip().lower()
+        api_key_input = request.form.get("api_key", "").strip()
+        linked_site   = None
+        if site_id_input and api_key_input:
+            if db_validate_api_key(site_id_input, api_key_input):
+                linked_site = site_id_input
+            else:
+                flash("Invalid Site ID or API Key — account not linked to any site.", "error")
+                return redirect(url_for("auth_signup"))
+
         pwd_hash = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
-        uid = db_create_user(name, email, pwd_hash)
+        uid = db_create_user(name, email, pwd_hash, site_id=linked_site)
         if not uid:
             flash("Could not create account. Please try again.", "error")
             return redirect(url_for("auth_signup"))
 
         user_data = db_get_user_by_id(uid)
         login_user(User(user_data), remember=True)
-        flash(f"Account created! Welcome, {name}. 🎉", "success")
+        if linked_site:
+            flash(f"Account created and linked to site '{linked_site}'! Welcome, {name}. 🎉", "success")
+        else:
+            flash(f"Account created! Welcome, {name}. 🎉", "success")
         return redirect(url_for("index"))
     return render_template("signup.html")
 
@@ -299,10 +314,11 @@ def api_status():
 def api_me():
     """Return current logged-in user info for the dashboard header."""
     return jsonify({
-        "id":    current_user.id,
-        "name":  current_user.name,
-        "email": current_user.email,
-        "role":  current_user.role,
+        "id":      current_user.id,
+        "name":    current_user.name,
+        "email":   current_user.email,
+        "role":    current_user.role,
+        "site_id": current_user.site_id,
     }), 200
 
 
@@ -357,12 +373,34 @@ def login():
 # ---- Dashboard ----
 
 @app.route("/dashboard", methods=["GET"])
+@login_required
 def dashboard():
-    return jsonify({
-        "total_events": db_get_total_events(),
-        "blocked_ips":  db_get_blocked_ips(),
-        "attack_log":   db_get_all_logs(),
-    }), 200
+    """
+    Return dashboard data.
+    - If user has a site_id (org user): return ONLY their site's logs.
+    - If user has no site_id (SOC admin): return ALL logs.
+    """
+    from database import get_db, db_get_logs_by_site
+    user_site = getattr(current_user, "site_id", None)
+    if user_site:
+        # Org user — show only their site's data
+        logs = db_get_logs_by_site(user_site, limit=500)
+        with get_db() as conn:
+            blocked = db_get_blocked_ips()
+        return jsonify({
+            "total_events": len(logs),
+            "blocked_ips":  blocked,
+            "attack_log":   logs,
+            "site_filter":  user_site,
+        }), 200
+    else:
+        # SOC admin — show everything
+        return jsonify({
+            "total_events": db_get_total_events(),
+            "blocked_ips":  db_get_blocked_ips(),
+            "attack_log":   db_get_all_logs(),
+            "site_filter":  None,
+        }), 200
 
 
 # ---- Agent Report (the key new endpoint) ----
@@ -447,10 +485,18 @@ def agent_report():
 # ---- Sites registry (public — api_key NEVER exposed) ----
 
 @app.route("/api/sites", methods=["GET"])
+@login_required
 def api_sites():
-    """Return monitored sites WITHOUT api_key. Safe for public dashboard."""
+    """
+    Return monitored sites WITHOUT api_key.
+    - Org user: returns ONLY their own site.
+    - Admin (no site_id): returns all sites.
+    """
     from database import get_db
+    user_site = getattr(current_user, "site_id", None)
     sites = db_get_sites()
+    if user_site:
+        sites = [s for s in sites if s["id"] == user_site]
     result = []
     for s in sites:
         with get_db() as conn:
@@ -461,7 +507,6 @@ def api_sites():
                 "SELECT COUNT(*) FROM attack_log WHERE site_id = ? AND severity != 'None'",
                 (s["id"],)
             ).fetchone()[0]
-        # Strip api_key from public response
         result.append({
             "id":           s["id"],
             "name":         s["name"],
@@ -499,27 +544,28 @@ def api_admin_sites():
 # ---- Agent logs by site (api_key required — site sees ONLY its own data) ----
 
 @app.route("/api/agent/logs", methods=["GET"])
+@login_required
 def api_agent_logs():
     """
     Return attack logs for a site.
-    Requires matching (site_id + api_key) — a site can ONLY read its own data.
-    Admin key bypasses this restriction so the SOC dashboard can read all sites.
+    - Org user: can ONLY access their own site_id (enforced server-side).
+    - SOC admin: can access any site via X-Admin-Key OR by being logged in with no site_id.
     """
     site_id = request.args.get("site_id", "")
-    api_key = request.args.get("api_key", "")
-
     if not site_id:
         return jsonify({"error": "site_id required"}), 400
 
-    # SOC dashboard (admin) can access any site without per-site api_key
-    is_admin = _check_admin(request)
+    user_site = getattr(current_user, "site_id", None)
 
-    if not is_admin:
-        # Regular site access: must prove ownership via api_key
-        if not api_key:
-            return jsonify({"error": "api_key required to access site logs"}), 401
-        if not db_validate_api_key(site_id, api_key):
-            return jsonify({"error": "Invalid site_id or api_key"}), 401
+    # Enforce: org users can only see their own site
+    if user_site and site_id != user_site:
+        return jsonify({"error": "Access denied — you can only access your own site's logs"}), 403
+
+    # SOC admin: also check X-Admin-Key for extra safety if no site_id bound
+    if not user_site and not _check_admin(request):
+        api_key = request.args.get("api_key", "")
+        if not api_key or not db_validate_api_key(site_id, api_key):
+            return jsonify({"error": "api_key or admin key required"}), 401
 
     logs = db_get_logs_by_site(site_id, limit=200)
     return jsonify({

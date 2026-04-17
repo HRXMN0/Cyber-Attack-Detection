@@ -402,12 +402,22 @@ document.addEventListener("DOMContentLoaded",()=>{
 
   initTheme();initCharts();
 
-  // Load current user info into header
+  // Load current user info into header + auto-select their site
   fetch(BASE_URL + "/api/me").then(r=>r.json()).then(u=>{
     const nameEl = document.getElementById("userNameDisplay");
     const roleEl = document.getElementById("userRoleDisplay");
     if(nameEl) nameEl.textContent = u.name || "Analyst";
-    if(roleEl) roleEl.textContent = (u.role || "analyst").toUpperCase();
+    if(roleEl) roleEl.textContent = (u.site_id ? u.site_id.toUpperCase() : (u.role||"analyst").toUpperCase());
+
+    // If user is linked to a site, auto-select it in Site Monitor
+    if(u.site_id){
+      activeSiteId = u.site_id;
+      const sel = document.getElementById("siteSelect");
+      if(sel){ sel.value = u.site_id; }
+      // Add a subtle site badge to header
+      const roleEl2 = document.getElementById("userRoleDisplay");
+      if(roleEl2) roleEl2.style.color = "#00e5ff";
+    }
   }).catch(()=>{});
 
   addTerminalLog("SOC Dashboard v2.0 initializing...","ok");
