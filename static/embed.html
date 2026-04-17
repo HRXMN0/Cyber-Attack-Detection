@@ -35,9 +35,13 @@
     .step-title{font-weight:700;font-size:0.95rem;}
     .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:0.68rem;font-weight:700;background:rgba(0,229,255,0.12);color:#00e5ff;margin-left:6px;}
     .alert-box{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:10px;padding:14px 18px;font-size:0.83rem;color:#00ff88;margin-top:16px;}
+    /* Toast */
+    #copyToast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#00ff88;color:#0a0e1a;padding:10px 24px;border-radius:99px;font-weight:700;font-size:0.85rem;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;}
+    #copyToast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   </style>
 </head>
 <body>
+  <div id="copyToast">✓ Copied!</div>
   <h1>⚙️ Deploy Monitoring Agent</h1>
   <div class="sub">Embed a 2-line script tag into any website to start real-time attack monitoring. No setup required.</div>
 
@@ -127,11 +131,11 @@
             <div class="site-url">${s.url}</div>
             <div class="site-id-row">
               <div><div class="label">Site ID</div><div class="val">${s.id}</div></div>
-              <button class="copy-btn" onclick="copyText('${s.id}')">Copy ID</button>
+              <button class="copy-btn" onclick="copyText('${s.id}', this)">Copy ID</button>
             </div>
             <div class="site-id-row">
               <div><div class="label">API Key</div><div class="val">${s.api_key}</div></div>
-              <button class="copy-btn" onclick="copyText('${s.api_key}')">Copy Key</button>
+              <button class="copy-btn" onclick="copyText('${s.api_key}', this)">Copy Key</button>
             </div>
           </div>`).join("");
       } catch(e) {
@@ -139,16 +143,27 @@
       }
     }
 
-    function copyText(t) { navigator.clipboard.writeText(t).catch(() => {}); }
+    function showToast() {
+      const t = document.getElementById('copyToast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 1800);
+    }
+
+    function copyText(t, btn) {
+      navigator.clipboard.writeText(t).then(() => {
+        if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.color='#00ff88'; setTimeout(()=>{ btn.textContent=orig; btn.style.color=''; }, 1800); }
+        showToast();
+      }).catch(() => {});
+    }
 
     function copySnippet() {
       const txt = `<!-- SOC Monitoring Agent -->\n<script src="${BASE_URL}/static/agent.js"\n        data-site="YOUR_SITE_ID"\n        data-key="YOUR_API_KEY"><\/script>`;
-      navigator.clipboard.writeText(txt).catch(() => {});
+      navigator.clipboard.writeText(txt).then(() => showToast()).catch(() => {});
     }
 
     function copyCurl() {
       const txt = `Invoke-RestMethod -Uri "${BASE_URL}/api/agent/report" \`\n  -Method POST -ContentType "application/json" \`\n  -Body '{"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142","method":"POST","path":"/admin/login","user_agent":"python-requests/2.28","referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'`;
-      navigator.clipboard.writeText(txt).catch(() => {});
+      navigator.clipboard.writeText(txt).then(() => showToast()).catch(() => {});
     }
 
     loadSites();
