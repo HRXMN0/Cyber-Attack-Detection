@@ -65,12 +65,10 @@
         <div class="step-content">
           <div class="step-title">Paste the snippet into your website's &lt;head&gt;</div>
           <p>Replace <code>YOUR_SITE_ID</code> and <code>YOUR_API_KEY</code> with your values.</p>
+      <!-- Step 2 code block: filled dynamically -->
           <div class="code-block" id="snippetBlock">
             <button class="copy-full" onclick="copySnippet()">Copy</button>
-<span class="comment">&lt;!-- SOC Monitoring Agent --&gt;</span>
-<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"http://127.0.0.1:5000/static/agent.js"</span>
-        <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>
-        <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span><span style="color:#e8eaf6;">&gt;&lt;/script&gt;</span>
+            <span id="snippetCode">Loading…</span>
           </div>
         </div>
       </div>
@@ -91,20 +89,30 @@
     <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">You can simulate a monitored site sending attack data manually:</p>
     <div class="code-block" style="color:#e8eaf6;">
       <button class="copy-full" onclick="copyCurl()">Copy</button>
-<span style="color:#8892b0;"># PowerShell</span>
-Invoke-RestMethod -Uri <span style="color:#ffd600;">"http://127.0.0.1:5000/api/agent/report"</span> `
-  -Method POST -ContentType <span style="color:#ffd600;">"application/json"</span> `
-  -Body <span style="color:#ffd600;">'{"site_id":"gov-portal","api_key":"demo","ip":"218.92.0.142",
-  "method":"POST","path":"/admin/login","user_agent":"python-requests/2.28",
-  "referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'</span>
+      <span id="curlCode">Loading…</span>
     </div>
   </div>
 
   <script>
+    const BASE_URL  = window.location.origin;
     const ADMIN_KEY = "soc-admin-secret-change-me"; // match SOC_ADMIN_KEY env var
+
+    // Fill dynamic code blocks using real deployed URL
+    document.getElementById("snippetCode").innerHTML =
+      `<span class="comment">&lt;!-- SOC Monitoring Agent --&gt;</span>\n` +
+      `<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"${BASE_URL}/static/agent.js"</span>\n` +
+      `        <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>\n` +
+      `        <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span><span style="color:#e8eaf6;">&gt;&lt;\/script&gt;</span>`;
+
+    document.getElementById("curlCode").innerHTML =
+      `<span style="color:#8892b0;"># PowerShell</span>\n` +
+      `Invoke-RestMethod -Uri <span style="color:#ffd600;">"${BASE_URL}/api/agent/report"</span> \`\n` +
+      `  -Method POST -ContentType <span style="color:#ffd600;">"application/json"</span> \`\n` +
+      `  -Body <span style="color:#ffd600;">'&#123;"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142",\n  "method":"POST","path":"/admin/login","user_agent":"python-requests/2.28",\n  "referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240&#125;'</span>`;
+
     async function loadSites() {
       try {
-        const res   = await fetch("/api/admin/sites", {
+        const res = await fetch("/api/admin/sites", {
           headers: { "X-Admin-Key": ADMIN_KEY }
         });
         if (res.status === 403) {
@@ -131,15 +139,18 @@ Invoke-RestMethod -Uri <span style="color:#ffd600;">"http://127.0.0.1:5000/api/a
       }
     }
 
-    function copyText(t){ navigator.clipboard.writeText(t).catch(()=>{}); }
-    function copySnippet(){
-      const txt = `<!-- SOC Monitoring Agent -->\n<script src="http://127.0.0.1:5000/static/agent.js"\n        data-site="YOUR_SITE_ID"\n        data-key="YOUR_API_KEY"><\/script>`;
-      navigator.clipboard.writeText(txt).catch(()=>{});
+    function copyText(t) { navigator.clipboard.writeText(t).catch(() => {}); }
+
+    function copySnippet() {
+      const txt = `<!-- SOC Monitoring Agent -->\n<script src="${BASE_URL}/static/agent.js"\n        data-site="YOUR_SITE_ID"\n        data-key="YOUR_API_KEY"><\/script>`;
+      navigator.clipboard.writeText(txt).catch(() => {});
     }
-    function copyCurl(){
-      const txt = `Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/agent/report" \`\n  -Method POST -ContentType "application/json" \`\n  -Body '{"site_id":"gov-portal","api_key":"demo","ip":"218.92.0.142","method":"POST","path":"/admin/login","user_agent":"python-requests/2.28","referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'`;
-      navigator.clipboard.writeText(txt).catch(()=>{});
+
+    function copyCurl() {
+      const txt = `Invoke-RestMethod -Uri "${BASE_URL}/api/agent/report" \`\n  -Method POST -ContentType "application/json" \`\n  -Body '{"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142","method":"POST","path":"/admin/login","user_agent":"python-requests/2.28","referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'`;
+      navigator.clipboard.writeText(txt).catch(() => {});
     }
+
     loadSites();
   </script>
 </body>

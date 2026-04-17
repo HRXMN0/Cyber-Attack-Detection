@@ -3,12 +3,13 @@
 // Live Feed + Site Monitor + Tab switching + realistic simulation
 // =============================================================================
 
-const API        = "http://127.0.0.1:5000/dashboard";
-const SITES_API  = "http://127.0.0.1:5000/api/sites";
-const LOGS_API   = "http://127.0.0.1:5000/api/agent/logs";
+// Dynamic base URL — works on localhost AND on any deployed domain (Render, etc.)
+const BASE_URL   = window.location.origin;
+const API        = BASE_URL + "/dashboard";
+const SITES_API  = BASE_URL + "/api/sites";
+const LOGS_API   = BASE_URL + "/api/agent/logs";
 const POLL_MS    = 5000;
 // Admin key — must match SOC_ADMIN_KEY env var on the server
-// The SOC dashboard always uses this; individual sites use their own api_key
 const ADMIN_KEY  = "soc-admin-secret-change-me";
 
 
