@@ -50,6 +50,7 @@ const sevColor = { none:'#8892b0', low:'#64dd17', medium:'#ffd600', high:'#ff6d0
 
 // ── State ────────────────────────────────────────────────────────────────────
 let soundEnabled   = true;
+let shakeEnabled   = true;   // screen vibration on critical attacks
 let simRunning     = true;
 let intensity      = 2;
 let attackCount    = 0;
@@ -294,9 +295,11 @@ class GlobeEngine {
     it.textContent = `${attacker.flag} ${attacker.name.toUpperCase()} — ATTACK BLOCKED`;
     al.classList.add('show');
     setTimeout(() => al.classList.remove('show'), 1800);
-    // Screen shake on high-severity
-    document.body.classList.add('shaking');
-    setTimeout(() => document.body.classList.remove('shaking'), 500);
+    // Screen shake on high-severity (only if vibration is enabled)
+    if (shakeEnabled) {
+      document.body.classList.add('shaking');
+      setTimeout(() => document.body.classList.remove('shaking'), 500);
+    }
     // Update top attacker
     const top = ATTACKERS.reduce((a, b) => a.attacks > b.attacks ? a : b);
     document.getElementById('globeTopAttacker').textContent = top.flag + ' ' + top.cc;
@@ -1090,7 +1093,37 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sound toggle
   document.getElementById('soundBtn').addEventListener('click', () => {
     soundEnabled = !soundEnabled;
-    document.getElementById('soundBtn').textContent = soundEnabled ? '🔊' : '🔇';
+    document.getElementById('soundBtn').textContent = soundEnabled ? '\uD83D\uDD0A' : '\uD83D\uDD07';
+  });
+
+  // Shake / vibration toggle
+  const shakeBtn = document.getElementById('shakeBtn');
+  function _applyShakeBtnStyle() {
+    if (shakeEnabled) {
+      shakeBtn.textContent = '\uD83D\uDCF3';   // 📳 vibrate on
+      shakeBtn.title       = 'Screen shake ON — click to disable';
+      shakeBtn.style.background    = 'rgba(255,23,68,0.12)';
+      shakeBtn.style.borderColor   = 'rgba(255,23,68,0.4)';
+      shakeBtn.style.boxShadow     = '0 0 8px rgba(255,23,68,0.3)';
+      shakeBtn.style.color         = '#ff5252';
+    } else {
+      shakeBtn.textContent = '\uD83D\uDCF4';   // 📴 vibrate off
+      shakeBtn.title       = 'Screen shake OFF — click to enable';
+      shakeBtn.style.background    = 'rgba(255,255,255,0.04)';
+      shakeBtn.style.borderColor   = 'rgba(255,255,255,0.1)';
+      shakeBtn.style.boxShadow     = 'none';
+      shakeBtn.style.color         = '#8892b0';
+    }
+  }
+  _applyShakeBtnStyle();  // initial render
+  shakeBtn.addEventListener('click', () => {
+    shakeEnabled = !shakeEnabled;
+    _applyShakeBtnStyle();
+    // Remove any in-progress shake immediately when disabled
+    if (!shakeEnabled) document.body.classList.remove('shaking');
+    // Brief press animation
+    shakeBtn.style.transform = 'scale(0.88)';
+    setTimeout(() => { shakeBtn.style.transform = ''; }, 150);
   });
 
   // Load user info
@@ -1200,15 +1233,8 @@ class SiteAlertsEngine {
 
     const card = document.createElement('div');
     card.dataset.alertId = a.id;
-    card.style.cssText = `
-      background: rgba(${sev==='critical'?'255,23,68':'sev==="high"?255,109,0':0+',229,255'}, 0.05);
-      border: 1px solid ${clr}33;
-      border-left: 3px solid ${clr};
-      border-radius: 10px; padding: 10px 12px;
-      cursor: pointer; transition: .2s;
-      animation: blockIn .35s ease;
-      flex-shrink: 0;
-    `;
+    const _bg = sev === 'critical' ? '255,23,68' : sev === 'high' ? '255,109,0' : '0,229,255';
+    card.style.cssText = 'background:rgba(' + _bg + ',0.05);border:1px solid ' + clr + '33;border-left:3px solid ' + clr + ';border-radius:10px;padding:10px 12px;cursor:pointer;transition:.2s;animation:blockIn .35s ease;flex-shrink:0;';
     if (sev === 'critical' || sev === 'high') {
       card.style.background = `rgba(255,23,68,0.07)`;
     }
