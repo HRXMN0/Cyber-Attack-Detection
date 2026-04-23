@@ -20,6 +20,8 @@
 
 import os
 import pickle
+import threading
+import time
 
 import bcrypt
 import pandas as pd
@@ -213,10 +215,60 @@ _CC_TO_NAME = {
     "UA": "Ukraine", "NG": "Nigeria", "FR": "France", "GB": "United Kingdom",
     "JP": "Japan", "KR": "South Korea", "PK": "Pakistan", "BD": "Bangladesh",
     "ID": "Indonesia", "VN": "Vietnam", "TR": "Turkey", "MX": "Mexico",
+    "AU": "Australia", "CA": "Canada", "IT": "Italy", "ES": "Spain",
+    "NL": "Netherlands", "SE": "Sweden", "PL": "Poland", "RO": "Romania",
+    "HK": "Hong Kong", "SG": "Singapore", "TH": "Thailand", "PH": "Philippines",
 }
 
 def _country_name(code: str) -> str:
     return _CC_TO_NAME.get((code or "").upper(), code or "Unknown")
+
+# ── Real-Time GeoIP Engine (ipinfo.io — no API key needed for basic use) ────
+_geoip_cache: dict = {}       # ip → {country, country_name, city, org, region, loc}
+_geoip_lock = threading.Lock()
+
+_CC_TO_FLAG = {
+    "CN":"🇨🇳","RU":"🇷🇺","US":"🇺🇸","BR":"🇧🇷","IN":"🇮🇳","DE":"🇩🇪","KP":"🇰🇵","IR":"🇮🇷",
+    "UA":"🇺🇦","NG":"🇳🇬","FR":"🇫🇷","GB":"🇬🇧","JP":"🇯🇵","KR":"🇰🇷","PK":"🇵🇰",
+    "BD":"🇧🇩","ID":"🇮🇩","VN":"🇻🇳","TR":"🇹🇷","MX":"🇲🇽","AU":"🇦🇺","CA":"🇨🇦",
+    "NL":"🇳🇱","SE":"🇸🇪","PL":"🇵🇱","RO":"🇷🇴","HK":"🇭🇰","SG":"🇸🇬","TH":"🇹🇭",
+}
+
+def _geoip_fetch_async(ip: str) -> None:
+    """Background thread: fetch GeoIP from ipinfo.io and cache it."""
+    if not ip or ip.startswith(("127.", "10.", "192.168.", "172.16.", "0.0.0")):
+        with _geoip_lock:
+            _geoip_cache[ip] = {"country": "LOCAL", "city": "localhost", "org": "Private", "region": "", "country_name": "Local", "flag": "🏠", "loc": "0,0"}
+        return
+    try:
+        import urllib.request, json as _json
+        with urllib.request.urlopen(f"https://ipinfo.io/{ip}/json", timeout=3) as r:
+            d = _json.loads(r.read())
+        cc = d.get("country", "") or ""
+        with _geoip_lock:
+            _geoip_cache[ip] = {
+                "country":      cc,
+                "country_name": _CC_TO_NAME.get(cc.upper(), cc or "Unknown"),
+                "flag":         _CC_TO_FLAG.get(cc.upper(), "🌐"),
+                "city":         d.get("city", ""),
+                "region":       d.get("region", ""),
+                "org":          d.get("org", ""),   # e.g. "AS12345 Contabo GmbH"
+                "loc":          d.get("loc", "0,0"),
+                "timezone":     d.get("timezone", ""),
+            }
+    except Exception:
+        with _geoip_lock:
+            _geoip_cache[ip] = {}
+
+def get_geoip(ip: str) -> dict:
+    """Return GeoIP dict for an IP. Triggers background fetch if not cached."""
+    with _geoip_lock:
+        cached = _geoip_cache.get(ip)
+    if cached is not None:
+        return cached
+    threading.Thread(target=_geoip_fetch_async, args=(ip,), daemon=True).start()
+    return {}  # Will be populated within ~1-2 seconds
+
 
 
 def serialize_sites_for_response(sites: list[dict], include_credentials: bool = False) -> list[dict]:
@@ -511,10 +563,13 @@ def agent_report():
     path       = data.get("path", "/")
     user_agent = data.get("user_agent", "")
     referer    = data.get("referer", "")
-    country    = data.get("country", "")
-    city       = data.get("city", "")
-    asn        = data.get("asn", "")
     bytes_in   = int(data.get("bytes_in", 0) or 0)
+
+    # ── Real-Time GeoIP lookup ───────────────────────────────────────────────
+    geo = get_geoip(ip)   # non-blocking (cached or triggers background thread)
+    country = data.get("country") or geo.get("country", "")
+    city    = data.get("city")    or geo.get("city", "")
+    asn     = data.get("asn")     or geo.get("org", "")   # ASN + ISP name
 
     # --- Blocked IP check ---
     if is_blocked(ip, site_id=site_id):
@@ -548,13 +603,21 @@ def agent_report():
         bytes_in   = bytes_in,
     )
 
+    geo_full = {**geo}  # full GeoIP for response
+
     return jsonify({
-        "ip":         ip,
-        "attack":     attack_type,
-        "severity":   severity,
-        "action":     action,
-        "site_id":    site_id,
-        "country":    country or "Unknown",
+        "ip":           ip,
+        "attack":       attack_type,
+        "severity":     severity,
+        "action":       action,
+        "site_id":      site_id,
+        "country":      country or geo_full.get("country", "Unknown"),
+        "country_name": geo_full.get("country_name") or _country_name(country),
+        "flag":         geo_full.get("flag", "🌐"),
+        "city":         city or geo_full.get("city", ""),
+        "region":       geo_full.get("region", ""),
+        "org":          asn or geo_full.get("org", ""),
+        "loc":          geo_full.get("loc", ""),
     }), 200
 
 
@@ -648,6 +711,90 @@ def api_widget_logs():
         "attack_log": logs,
         "blocked_ips": blocked,
     }), 200
+
+
+# ---- Return API key for the logged-in user's own site ----
+
+@app.route("/api/my-site-key", methods=["GET"])
+@login_required
+def api_my_site_key():
+    """Return the API key for the current user's linked site. Requires the user to be linked."""
+    user_site = getattr(current_user, "site_id", None)
+    if not user_site:
+        return jsonify({"error": "Your account is not linked to any site."}), 403
+    sites = db_get_sites()
+    site  = next((s for s in sites if s["id"] == user_site), None)
+    if not site:
+        return jsonify({"error": "Site not found."}), 404
+    return jsonify({"site_id": user_site, "api_key": site.get("api_key", "")}), 200
+
+
+# ---- Real-time live attack details for monitored sites ----
+
+@app.route("/api/live-attacks", methods=["GET"])
+@login_required
+def api_live_attacks():
+    """
+    Returns recent attack events enriched with full attacker details including GeoIP.
+    Used by the SOC dashboard "Site Alerts" panel.
+    """
+    site_id = request.args.get("site_id", "")
+    limit   = min(int(request.args.get("limit", 20)), 100)
+    since   = request.args.get("since", "")  # ISO timestamp filter
+
+    # Scope to user's site unless admin
+    if not is_admin_user():
+        user_site = getattr(current_user, "site_id", None)
+        if not user_site:
+            return jsonify({"attacks": []}), 200
+        site_id = user_site  # force to own site
+
+    with get_db() as conn:
+        query = """
+            SELECT id, ip, attack, severity, timestamp, blocked, site_id,
+                   user_agent, method, path, referer, country, city, asn, bytes_in
+            FROM attack_log
+            WHERE severity != 'None'
+        """
+        params: list = []
+        if site_id:
+            query  += " AND site_id = ?"
+            params.append(site_id)
+        if since:
+            query  += " AND timestamp > ?"
+            params.append(since)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+
+    results = []
+    for row in rows:
+        d   = dict(row)
+        ip  = d.get("ip", "")
+        cc  = d.get("country", "") or ""
+        # Enrich with cached GeoIP (if available)
+        geo = get_geoip(ip)  # non-blocking
+        country_name = geo.get("country_name") or _country_name(cc) or "Unknown"
+        flag         = geo.get("flag") or _CC_TO_FLAG.get(cc.upper(), "🌐")
+        city         = d.get("city") or geo.get("city", "")
+        region       = geo.get("region", "")
+        org          = d.get("asn")  or geo.get("org", "")
+        loc          = geo.get("loc", "")
+        lat, lon     = (loc.split(",") + ["", ""])[:2] if loc else ("", "")
+
+        results.append({
+            **d,
+            "country_name": country_name,
+            "flag":         flag,
+            "city":         city,
+            "region":       region,
+            "org":          org,
+            "lat":          lat,
+            "lon":          lon,
+            "is_blocked":   bool(d.get("blocked")),
+        })
+
+    return jsonify({"attacks": results, "total": len(results)}), 200
 
 
 # ---------------------------------------------------------------------------

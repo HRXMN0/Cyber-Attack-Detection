@@ -1,192 +1,537 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Deploy Agent — SOC Monitor</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <title>Deploy Monitoring Agent — AI Cyber SOC</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@600;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'Inter',sans-serif;background:#0a0e1a;color:#e8eaf6;min-height:100vh;padding:32px;}
-    h1{font-size:1.6rem;font-weight:800;margin-bottom:6px;color:#00e5ff;}
-    .sub{color:#8892b0;font-size:0.85rem;margin-bottom:32px;}
-    .card{background:rgba(15,22,41,0.8);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px 28px;margin-bottom:24px;}
-    .card-title{font-size:1rem;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
-    .sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:6px;}
-    .site-item{background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:16px 18px;}
-    .site-name{font-weight:700;font-size:0.95rem;margin-bottom:2px;}
-    .site-url{font-size:0.72rem;color:#8892b0;font-family:'JetBrains Mono',monospace;margin-bottom:10px;}
-    .site-id-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
-    .label{font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#8892b0;font-weight:600;}
-    .val{font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:#00ff88;word-break:break-all;}
-    .copy-btn{padding:4px 10px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.1);color:#00e5ff;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600;white-space:nowrap;transition:.2s;}
-    .copy-btn:hover{background:rgba(0,229,255,0.2);}
-    .code-block{background:#020509;border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#3bffb8;overflow-x:auto;position:relative;margin-top:6px;}
-    .code-block .comment{color:#4a5568;}
-    .code-block .attr{color:#00e5ff;}
-    .code-block .val2{color:#ffd600;}
-    .copy-full{position:absolute;top:12px;right:12px;padding:5px 12px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.1);color:#00e5ff;border-radius:6px;cursor:pointer;font-size:0.72rem;font-weight:700;}
-    .copy-full:hover{background:rgba(0,229,255,0.2);}
-    .steps{counter-reset:steps;}
-    .step{counter-increment:steps;display:flex;gap:16px;margin-bottom:18px;align-items:flex-start;}
-    .step-num{min-width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e5ff22,#00e5ff44);border:1px solid #00e5ff55;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:#00e5ff;}
-    .step-content p{font-size:0.88rem;color:#8892b0;margin-top:4px;}
-    .step-title{font-weight:700;font-size:0.95rem;}
-    .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:0.68rem;font-weight:700;background:rgba(0,229,255,0.12);color:#00e5ff;margin-left:6px;}
-    .alert-box{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:10px;padding:14px 18px;font-size:0.83rem;color:#00ff88;margin-top:16px;}
+    :root{--neon:#00e5ff;--green:#00ff88;--red:#ff1744;--orange:#ff6d00;--purple:#aa00ff;--bg:#020409;--panel:rgba(4,12,28,0.92);--border:rgba(0,229,255,0.12);}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:#e8eaf6;min-height:100vh;padding:0;}
+    ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-thumb{background:rgba(0,229,255,.2);border-radius:99px;}
+
+    /* Grid bg */
+    body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.03) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;}
+
+    /* Top bar */
+    .topbar{position:sticky;top:0;z-index:100;background:rgba(2,4,9,.95);border-bottom:1px solid var(--border);padding:12px 32px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(16px);}
+    .topbar-brand{display:flex;align-items:center;gap:10px;}
+    .topbar-brand .icon{font-size:1.3rem;filter:drop-shadow(0 0 8px #00e5ff66);}
+    .topbar-brand .name{font-family:'Orbitron',sans-serif;font-size:.82rem;font-weight:900;color:var(--neon);letter-spacing:2px;}
+    .topbar-actions{display:flex;gap:10px;}
+    .back-btn{display:flex;align-items:center;gap:6px;text-decoration:none;color:#8892b0;font-size:.78rem;padding:6px 12px;border:1px solid rgba(255,255,255,.08);border-radius:8px;transition:.2s;}
+    .back-btn:hover{background:rgba(255,255,255,.05);color:#e8eaf6;}
+
+    /* Layout */
+    .container{max-width:1100px;margin:0 auto;padding:40px 32px;position:relative;z-index:1;}
+
+    /* Hero */
+    .hero{text-align:center;margin-bottom:52px;}
+    .hero-badge{display:inline-flex;align-items:center;gap:7px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.2);border-radius:99px;padding:6px 16px;font-size:.72rem;font-weight:700;color:var(--neon);letter-spacing:1.5px;margin-bottom:20px;text-transform:uppercase;}
+    .hero-badge .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulseDot 1.2s ease-in-out infinite;}
+    @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.3}}
+    .hero h1{font-family:'Orbitron',sans-serif;font-size:2.2rem;font-weight:900;letter-spacing:2px;margin-bottom:14px;background:linear-gradient(135deg,#e8eaf6,var(--neon));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .hero p{color:#8892b0;font-size:.95rem;max-width:640px;margin:0 auto;line-height:1.7;}
+
+    /* How it works */
+    .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-bottom:52px;position:relative;}
+    .flow::before{content:'';position:absolute;top:28px;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(0,229,255,.3),rgba(0,229,255,.3),transparent);}
+    .flow-step{text-align:center;padding:0 16px;}
+    .flow-icon{width:56px;height:56px;border-radius:50%;border:2px solid rgba(0,229,255,.25);background:rgba(0,229,255,.06);display:flex;align-items:center;justify-content:center;font-size:1.4rem;margin:0 auto 14px;position:relative;z-index:1;}
+    .flow-num{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--neon);color:#020409;font-size:.62rem;font-weight:900;display:flex;align-items:center;justify-content:center;}
+    .flow-title{font-weight:700;font-size:.85rem;margin-bottom:5px;}
+    .flow-desc{font-size:.72rem;color:#8892b0;line-height:1.5;}
+
+    /* Section */
+    .section-title{font-family:'Orbitron',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:3px;color:#8892b0;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
+    .section-title::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06);}
+
+    /* Site cards */
+    .sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-bottom:48px;}
+    .site-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:22px;backdrop-filter:blur(14px);transition:.3s;}
+    .site-card:hover{border-color:rgba(0,229,255,.3);box-shadow:0 0 30px rgba(0,229,255,.06);}
+    .sc-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;}
+    .sc-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);margin-top:6px;flex-shrink:0;}
+    .sc-name{font-weight:800;font-size:1rem;}
+    .sc-url{font-family:'Share Tech Mono',monospace;font-size:.7rem;color:#8892b0;margin-top:2px;}
+    .sc-stat{display:flex;gap:14px;margin-bottom:14px;}
+    .sta{text-align:center;}
+    .sta-val{font-family:'Orbitron',sans-serif;font-size:.95rem;font-weight:700;}
+    .sta-val.cyan{color:var(--neon);}
+    .sta-val.red{color:var(--red);}
+    .sta-val.green{color:var(--green);}
+    .sta-lbl{font-size:.55rem;color:#4a6080;letter-spacing:1.5px;text-transform:uppercase;}
+    .cred-row{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:9px;margin-bottom:8px;}
+    .cred-lbl{font-size:.62rem;color:#4a6080;text-transform:uppercase;letter-spacing:1px;width:52px;flex-shrink:0;}
+    .cred-val{font-family:'Share Tech Mono',monospace;font-size:.74rem;color:var(--green);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .cred-copy{padding:3px 10px;border:1px solid rgba(0,229,255,.25);background:rgba(0,229,255,.07);border-radius:5px;color:var(--neon);cursor:pointer;font-size:.62rem;font-weight:700;letter-spacing:.5px;transition:.15s;white-space:nowrap;}
+    .cred-copy:hover{background:rgba(0,229,255,.18);}
+    .cred-copy.copied{border-color:rgba(0,255,136,.4);background:rgba(0,255,136,.1);color:var(--green);}
+    .sc-status{display:flex;align-items:center;gap:6px;font-size:.7rem;color:#8892b0;}
+    .status-dot-sm{width:6px;height:6px;border-radius:50%;background:var(--green);}
+    .empty-sites{text-align:center;padding:48px;background:rgba(0,229,255,.03);border:1px dashed rgba(0,229,255,.15);border-radius:16px;color:#4a6080;font-size:.9rem;}
+
+    /* Script tag display */
+    .deploy-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:28px 32px;margin-bottom:48px;position:relative;overflow:hidden;}
+    .deploy-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--neon),transparent);}
+
+    /* Tab switcher */
+    .tabs{display:flex;gap:4px;margin-bottom:20px;background:rgba(0,0,0,.3);border-radius:10px;padding:4px;}
+    .tab-btn{padding:7px 18px;border-radius:7px;border:none;background:transparent;color:#8892b0;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s;letter-spacing:.3px;}
+    .tab-btn.active{background:rgba(0,229,255,.12);color:var(--neon);border:1px solid rgba(0,229,255,.2);}
+
+    /* Code block */
+    .code-block{position:relative;background:#010710;border:1px solid rgba(0,229,255,.12);border-radius:12px;padding:20px 22px;font-family:'Share Tech Mono',monospace;font-size:.8rem;line-height:1.7;overflow-x:auto;}
+    .code-block .c-comment{color:#3a4a5a;}
+    .code-block .c-tag{color:var(--neon);}
+    .code-block .c-attr{color:#ffd600;}
+    .code-block .c-val{color:var(--green);}
+    .code-block .c-str{color:#ff9100;}
+    .code-block .c-py{color:#7c4dff;}
+    .copy-code-btn{position:absolute;top:14px;right:14px;padding:5px 14px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);border-radius:7px;color:var(--neon);font-size:.68rem;font-weight:700;cursor:pointer;transition:.2s;letter-spacing:.5px;}
+    .copy-code-btn:hover{background:rgba(0,229,255,.22);}
+    .copy-code-btn.copied{background:rgba(0,255,136,.1);border-color:rgba(0,255,136,.3);color:var(--green);}
+
+    /* Steps */
+    .steps{display:flex;flex-direction:column;gap:16px;}
+    .step{display:flex;gap:16px;align-items:flex-start;}
+    .step-num{min-width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,rgba(0,229,255,.15),rgba(0,229,255,.3));border:1.5px solid rgba(0,229,255,.35);display:flex;align-items:center;justify-content:center;font-family:'Orbitron',sans-serif;font-size:.65rem;font-weight:700;color:var(--neon);flex-shrink:0;margin-top:2px;}
+    .step-body{flex:1;}
+    .step-title{font-weight:700;font-size:.88rem;margin-bottom:3px;}
+    .step-desc{color:#8892b0;font-size:.78rem;line-height:1.5;}
+
+    /* Alert card */
+    .alert-card{display:flex;gap:14px;padding:16px 20px;background:rgba(0,255,136,.05);border:1px solid rgba(0,255,136,.2);border-radius:12px;margin-bottom:16px;}
+    .alert-card .a-icon{font-size:1.3rem;flex-shrink:0;}
+    .alert-card .a-title{font-weight:700;font-size:.88rem;margin-bottom:3px;color:var(--green);}
+    .alert-card .a-desc{font-size:.78rem;color:#8892b0;line-height:1.5;}
+
+    /* What gets monitored */
+    .detect-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:48px;}
+    .detect-item{background:var(--panel);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:16px;transition:.2s;}
+    .detect-item:hover{border-color:rgba(0,229,255,.2);}
+    .di-icon{font-size:1.4rem;margin-bottom:8px;}
+    .di-title{font-weight:700;font-size:.82rem;margin-bottom:3px;}
+    .di-desc{font-size:.68rem;color:#8892b0;line-height:1.4;}
+
+    /* Live test */
+    .live-test{background:linear-gradient(135deg,rgba(0,229,255,.04),rgba(170,0,255,.04));border:1px solid rgba(0,229,255,.15);border-radius:16px;padding:28px;text-align:center;margin-bottom:48px;}
+    .lt-title{font-family:'Orbitron',sans-serif;font-size:.85rem;font-weight:700;letter-spacing:2px;margin-bottom:8px;color:var(--neon);}
+    .lt-desc{color:#8892b0;font-size:.82rem;margin-bottom:20px;}
+    .lt-btn{padding:11px 28px;background:linear-gradient(135deg,rgba(0,229,255,.15),rgba(0,229,255,.3));border:1.5px solid rgba(0,229,255,.4);border-radius:10px;color:var(--neon);font-family:'Orbitron',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:2px;cursor:pointer;transition:.25s;}
+    .lt-btn:hover{background:linear-gradient(135deg,rgba(0,229,255,.25),rgba(0,229,255,.45));box-shadow:0 0 20px rgba(0,229,255,.2);}
+    .lt-result{margin-top:16px;padding:12px 16px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);border-radius:10px;font-size:.8rem;color:var(--green);display:none;}
+    .lt-result.show{display:block;}
+
     /* Toast */
-    #copyToast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#00ff88;color:#0a0e1a;padding:10px 24px;border-radius:99px;font-weight:700;font-size:0.85rem;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;}
+    #copyToast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--neon);color:#020409;padding:10px 24px;border-radius:99px;font-weight:700;font-size:.82rem;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;}
     #copyToast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   </style>
 </head>
 <body>
-  <div id="copyToast">✓ Copied!</div>
-  <h1>⚙️ Deploy Monitoring Agent</h1>
-  <div class="sub">Embed a 2-line script tag into any website to start real-time attack monitoring. No setup required.</div>
 
-  <!-- Sites -->
-  <div class="card">
-    <div class="card-title">🌐 Registered Sites <span class="tag" id="siteCount">Loading…</span></div>
-    <div class="sites-grid" id="sitesGrid">
-      <div style="color:#8892b0;font-size:.85rem;">Loading sites…</div>
+<div class="topbar">
+  <div class="topbar-brand">
+    <span class="icon">🛡️</span>
+    <span class="name">AI CYBER SOC</span>
+  </div>
+  <div class="topbar-actions">
+    <a href="/" class="back-btn">← Dashboard</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      REAL-TIME CYBER THREAT INTELLIGENCE
+    </div>
+    <h1>DEPLOY MONITORING AGENT</h1>
+    <p>Embed a single <code style="color:var(--neon);background:rgba(0,229,255,.08);padding:2px 7px;border-radius:5px;font-size:.88rem;">&lt;script&gt;</code> tag on any website to instantly activate AI-powered cyber attack detection with full attacker geolocation and threat analysis.</p>
+  </div>
+
+  <!-- How it works flow -->
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-icon">📋<div class="flow-num">1</div></div>
+      <div class="flow-title">Copy Tag</div>
+      <div class="flow-desc">Paste your site's unique <code>&lt;script&gt;</code> snippet into any website's HTML</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-icon">👁️<div class="flow-num">2</div></div>
+      <div class="flow-title">Agent Activates</div>
+      <div class="flow-desc">Invisible agent monitors all requests, forms, AJAX calls &amp; navigation</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-icon">🤖<div class="flow-num">3</div></div>
+      <div class="flow-title">AI Classifies</div>
+      <div class="flow-desc">Our ML model analyzes traffic — detects DDoS, brute force, port scans, bots</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-icon">🌍<div class="flow-num">4</div></div>
+      <div class="flow-title">Live Dashboard</div>
+      <div class="flow-desc">See attacks in real-time — country, city, ISP, attacker IP &amp; full details</div>
     </div>
   </div>
 
-  <!-- Embed Instructions -->
-  <div class="card">
-    <div class="card-title">📋 How to Deploy</div>
+  <!-- Your registered sites -->
+  <div class="section-title">Your Registered Sites <span id="siteCount" style="color:var(--neon);font-size:.8rem;font-weight:700;letter-spacing:0;text-transform:none;"></span></div>
+  <div id="sitesGrid" class="sites-grid">
+    <div class="empty-sites">⏳ Loading your sites…</div>
+  </div>
+
+  <!-- Deploy instructions -->
+  <div class="section-title">Deployment Guide</div>
+  <div class="deploy-card">
+    <div class="tabs" id="tabGroup">
+      <button class="tab-btn active" data-tab="html">HTML / Any Site</button>
+      <button class="tab-btn" data-tab="wordpress">WordPress</button>
+      <button class="tab-btn" data-tab="nextjs">Next.js / React</button>
+      <button class="tab-btn" data-tab="php">PHP</button>
+      <button class="tab-btn" data-tab="django">Django / Flask</button>
+    </div>
+
+    <!-- HTML -->
+    <div id="tab-html" class="tab-content">
+      <p style="font-size:.8rem;color:#8892b0;margin-bottom:14px;">Add this tag just before <code style="color:var(--neon);">&lt;/body&gt;</code> in your HTML. Replace the highlighted values with your credentials.</p>
+      <div class="code-block" id="codeHtml">
+        <button class="copy-code-btn" onclick="copyCode('codeHtml')">COPY</button>
+<pre><span class="c-comment">&lt;!-- AI Cyber SOC — Real-Time Threat Monitor --&gt;</span>
+<span class="c-tag">&lt;script</span>
+  <span class="c-attr">src</span>=<span class="c-val">"<span id="socUrlHtml">https://your-soc.onrender.com</span>/static/agent.js"</span>
+  <span class="c-attr">data-site</span>=<span class="c-str">"<span id="siteIdHtml">YOUR_SITE_ID</span>"</span>
+  <span class="c-attr">data-key</span>=<span class="c-str">"<span id="apiKeyHtml">YOUR_API_KEY</span>"</span>
+  <span class="c-attr">defer</span>
+<span class="c-tag">&gt;&lt;/script&gt;</span></pre>
+      </div>
+    </div>
+
+    <!-- WordPress -->
+    <div id="tab-wordpress" class="tab-content" style="display:none;">
+      <p style="font-size:.8rem;color:#8892b0;margin-bottom:14px;">Add to <code style="color:var(--neon);">functions.php</code> in your active theme, or use a plugin like "Insert Headers and Footers".</p>
+      <div class="code-block" id="codeWp">
+        <button class="copy-code-btn" onclick="copyCode('codeWp')">COPY</button>
+<pre><span class="c-comment">// In functions.php</span>
+<span class="c-py">function</span> soc_monitor_script() {
+  echo <span class="c-val">'&lt;script src="<span id="socUrlWp">https://your-soc.onrender.com</span>/static/agent.js"
+    data-site="<span id="siteIdWp">YOUR_SITE_ID</span>"
+    data-key="<span id="apiKeyWp">YOUR_API_KEY</span>"
+    defer&gt;&lt;/script&gt;'</span>;
+}
+add_action(<span class="c-str">'wp_footer'</span>, <span class="c-str">'soc_monitor_script'</span>);</pre>
+      </div>
+    </div>
+
+    <!-- Next.js -->
+    <div id="tab-nextjs" class="tab-content" style="display:none;">
+      <p style="font-size:.8rem;color:#8892b0;margin-bottom:14px;">Add to your <code style="color:var(--neon);">_app.js</code> or <code style="color:var(--neon);">layout.js</code> (App Router).</p>
+      <div class="code-block" id="codeNext">
+        <button class="copy-code-btn" onclick="copyCode('codeNext')">COPY</button>
+<pre><span class="c-comment">/* In _app.js or layout.js */</span>
+<span class="c-py">import</span> Script <span class="c-py">from</span> <span class="c-str">'next/script'</span>
+
+<span class="c-py">export default function</span> Layout({ children }) {
+  <span class="c-py">return</span> (
+    &lt;html&gt;
+      &lt;body&gt;
+        {children}
+        <span class="c-tag">&lt;Script</span>
+          <span class="c-attr">src</span>=<span class="c-val">"<span id="socUrlNext">https://your-soc.onrender.com</span>/static/agent.js"</span>
+          <span class="c-attr">data-site</span>=<span class="c-str">"<span id="siteIdNext">YOUR_SITE_ID</span>"</span>
+          <span class="c-attr">data-key</span>=<span class="c-str">"<span id="apiKeyNext">YOUR_API_KEY</span>"</span>
+          <span class="c-attr">strategy</span>=<span class="c-str">"afterInteractive"</span>
+        <span class="c-tag">/&gt;</span>
+      &lt;/body&gt;
+    &lt;/html&gt;
+  )
+}</pre>
+      </div>
+    </div>
+
+    <!-- PHP -->
+    <div id="tab-php" class="tab-content" style="display:none;">
+      <p style="font-size:.8rem;color:#8892b0;margin-bottom:14px;">Add before the closing <code style="color:var(--neon);">&lt;/body&gt;</code> tag in your footer template.</p>
+      <div class="code-block" id="codePhp">
+        <button class="copy-code-btn" onclick="copyCode('codePhp')">COPY</button>
+<pre><span class="c-comment">&lt;?php /* In footer.php or your template */ ?&gt;</span>
+<span class="c-tag">&lt;script</span>
+  <span class="c-attr">src</span>=<span class="c-val">"&lt;?= htmlspecialchars('<span id="socUrlPhp">https://your-soc.onrender.com</span>/static/agent.js') ?&gt;"</span>
+  <span class="c-attr">data-site</span>=<span class="c-str">"<span id="siteIdPhp">YOUR_SITE_ID</span>"</span>
+  <span class="c-attr">data-key</span>=<span class="c-str">"<span id="apiKeyPhp">YOUR_API_KEY</span>"</span>
+  <span class="c-attr">defer</span>
+<span class="c-tag">&gt;&lt;/script&gt;</span></pre>
+      </div>
+    </div>
+
+    <!-- Django -->
+    <div id="tab-django" class="tab-content" style="display:none;">
+      <p style="font-size:.8rem;color:#8892b0;margin-bottom:14px;">Add to your base template <code style="color:var(--neon);">base.html</code> before the closing <code style="color:var(--neon);">&lt;/body&gt;</code>.</p>
+      <div class="code-block" id="codeDjango">
+        <button class="copy-code-btn" onclick="copyCode('codeDjango')">COPY</button>
+<pre><span class="c-comment">{# In your Django/Jinja2 base template #}</span>
+<span class="c-tag">&lt;script</span>
+  <span class="c-attr">src</span>=<span class="c-val">"<span id="socUrlDjango">https://your-soc.onrender.com</span>/static/agent.js"</span>
+  <span class="c-attr">data-site</span>=<span class="c-str">"<span id="siteIdDjango">YOUR_SITE_ID</span>"</span>
+  <span class="c-attr">data-key</span>=<span class="c-str">"<span id="apiKeyDjango">YOUR_API_KEY</span>"</span>
+  <span class="c-attr">defer</span>
+<span class="c-tag">&gt;&lt;/script&gt;</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step by step -->
+  <div class="section-title">Step-by-Step Setup</div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:48px;">
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
-        <div class="step-content">
-          <div class="step-title">Choose a site above and copy its API Key</div>
-          <p>Admins can see all registered sites. Company users only see their own <code>site_id</code> and <code>api_key</code>.</p>
+        <div class="step-body">
+          <div class="step-title">Register Your Site</div>
+          <div class="step-desc">Go to the SOC Dashboard → <strong style="color:#e8eaf6;">Site Monitor</strong> tab → click <strong style="color:var(--neon);">"+ Add New Site"</strong>. Enter your website's name and URL. A unique <strong style="color:var(--green);">Site ID</strong> and <strong style="color:var(--green);">API Key</strong> will be generated.</div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
-        <div class="step-content">
-          <div class="step-title">Paste the snippet into your website's &lt;head&gt;</div>
-          <p>Replace <code>YOUR_SITE_ID</code> and <code>YOUR_API_KEY</code> with your values.</p>
-      <!-- Step 2 code block: filled dynamically -->
-          <div class="code-block" id="snippetBlock">
-            <button class="copy-full" onclick="copySnippet()">Copy</button>
-            <span id="snippetCode">Loading…</span>
-          </div>
+        <div class="step-body">
+          <div class="step-title">Copy Your Credentials</div>
+          <div class="step-desc">From the site card above, copy your <strong style="color:var(--green);">Site ID</strong> and <strong style="color:var(--green);">API Key</strong>. These are unique to your website and ensure your data is completely isolated from other organisations.</div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
-        <div class="step-content">
-          <div class="step-title">Open the Site Monitor tab on the dashboard</div>
-          <p>Select your site from the dropdown — real-time attack data will appear within seconds.</p>
+        <div class="step-body">
+          <div class="step-title">Embed the Agent Script</div>
+          <div class="step-desc">Select your platform above and paste the code snippet into your website's HTML. The agent is < 5 KB, loads asynchronously, and will never slow down your site.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-title">Verify Deployment</div>
+          <div class="step-desc">Click <strong style="color:var(--neon);">"Send Test Event"</strong> below. Within 5 seconds, a test event should appear in your Site Monitor tab on the dashboard. You're live! 🎉</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <div class="step-title">Monitor &amp; Respond</div>
+          <div class="step-desc">Return to the dashboard. Your site's activity will appear in real-time. Attacks are automatically classified, geolocated, and displayed with full details including source country, city, ISP, and threat type.</div>
         </div>
       </div>
     </div>
-    <div class="alert-box">✅ The agent is fully silent — no UI changes on the monitored website, no cookies set, under 5 KB total. Works on any HTML site.</div>
   </div>
 
-  <!-- Mini Dashboard Widget -->
-  <div class="card">
-    <div class="card-title">📊 Mini Dashboard Widget</div>
-    <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">Let your website visitors see real-time security status. Embed this widget on any page:</p>
-    <div class="code-block" id="widgetBlock">
-      <button class="copy-full" onclick="copyWidget()">Copy</button>
-      <span id="widgetCode">Loading…</span>
+  <!-- What gets detected -->
+  <div class="section-title">What Gets Detected</div>
+  <div class="detect-grid">
+    <div class="detect-item"><div class="di-icon">🔑</div><div class="di-title">Brute Force Login</div><div class="di-desc">Multiple failed login attempts — bot-driven credential stuffing detected in real-time</div></div>
+    <div class="detect-item"><div class="di-icon">💣</div><div class="di-title">DDoS / Flooding</div><div class="di-desc">Volumetric attacks — rapid request patterns and abnormal traffic spikes</div></div>
+    <div class="detect-item"><div class="di-icon">🔍</div><div class="di-title">Port / Path Scan</div><div class="di-desc">Automated scanning of /admin, /.env, /config and other sensitive endpoints</div></div>
+    <div class="detect-item"><div class="di-icon">🤖</div><div class="di-title">Bot Traffic</div><div class="di-desc">Known scanner signatures: sqlmap, Nmap, Nikto, Masscan, Hydra detected by UA analysis</div></div>
+    <div class="detect-item"><div class="di-icon">💉</div><div class="di-title">SQL / XSS Injection</div><div class="di-desc">Malicious payloads in form inputs and GET parameters intercepted and flagged</div></div>
+    <div class="detect-item"><div class="di-icon">🌍</div><div class="di-title">Geo Anomalies</div><div class="di-desc">Traffic from high-risk countries — full GeoIP with city, region, ISP and coordinates</div></div>
+    <div class="detect-item"><div class="di-icon">☠️</div><div class="di-title">Exploit Signatures</div><div class="di-desc">CVE exploits, Log4Shell, heartbleed patterns matched against 28,000+ IDS signatures</div></div>
+    <div class="detect-item"><div class="di-icon">📊</div><div class="di-title">Traffic Analytics</div><div class="di-desc">Normal vs suspicious baseline comparison — anomaly detection using RandomForest ML</div></div>
+  </div>
+
+  <!-- Live test -->
+  <div class="live-test">
+    <div class="lt-title">VERIFY DEPLOYMENT</div>
+    <div class="lt-desc">Click the button to send a test event to your dashboard. Confirm it appears in the Site Monitor tab.</div>
+    <button class="lt-btn" onclick="sendTestEvent()">▶ SEND TEST EVENT</button>
+    <div class="lt-result" id="ltResult"></div>
+  </div>
+
+  <!-- Alert card -->
+  <div class="alert-card">
+    <div class="a-icon">🔐</div>
+    <div>
+      <div class="a-title">Security &amp; Privacy</div>
+      <div class="a-desc">The agent only reports <strong>metadata</strong> (IP, path, user-agent, method) — never personal data, form values, or passwords. All data is encrypted in transit via HTTPS. API keys are validated server-side for every request. Your site's data is completely isolated from other organisations.</div>
     </div>
-    <p style="font-size:.75rem;color:#4a5568;margin-top:10px;">
-      💡 The widget shows: live status (Secure/Under Attack), total events, recent attacks, and blocked IPs.
-      Position options: <code>top-left</code>, <code>top-right</code>, <code>bottom-left</code>, <code>bottom-right</code>
-    </p>
   </div>
 
-  <!-- Test via curl -->
-  <div class="card">
-    <div class="card-title">🧪 Test via PowerShell / curl</div>
-    <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">You can simulate a monitored site sending attack data manually:</p>
-    <div class="code-block" style="color:#e8eaf6;">
-      <button class="copy-full" onclick="copyCurl()">Copy</button>
-      <span id="curlCode">Loading…</span>
-    </div>
-  </div>
+</div>
 
-  <script>
-    const BASE_URL  = window.location.origin;
+<div id="copyToast">✓ Copied!</div>
 
-    // Fill dynamic code blocks using real deployed URL
-    document.getElementById("snippetCode").innerHTML =
-      `<span class="comment">&lt;!-- SOC Monitoring Agent --&gt;</span>\n` +
-      `<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"${BASE_URL}/static/agent.js"</span>\n` +
-      `        <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>\n` +
-      `        <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span><span style="color:#e8eaf6;">&gt;&lt;\/script&gt;</span>`;
+<script>
+  const BASE = window.location.origin;
 
-    document.getElementById("curlCode").innerHTML =
-      `<span style="color:#8892b0;"># PowerShell</span>\n` +
-      `Invoke-RestMethod -Uri <span style="color:#ffd600;">"${BASE_URL}/api/agent/report"</span> \`\n` +
-      `  -Method POST -ContentType <span style="color:#ffd600;">"application/json"</span> \`\n` +
-      `  -Body <span style="color:#ffd600;">'&#123;"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142",\n  "method":"POST","path":"/admin/login","user_agent":"python-requests/2.28",\n  "referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240&#125;'</span>`;
+  // ── Tab switching ────────────────────────────────────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).style.display = 'block';
+    });
+  });
 
-    // Widget snippet
-    document.getElementById("widgetCode").innerHTML =
-      `<span class="comment">&lt;!-- SOC Security Widget --&gt;\n` +
-      `<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"${BASE_URL}/static/site-widget.js"</span>\n` +
-      `  <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>\n` +
-      `  <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span>\n` +
-      `  <span class="attr">data-position</span>=<span class="val2">"bottom-right"</span><span style="color:#e8eaf6;">&gt;&lt;/script&gt;</span>`;
+  // ── Copy helpers ─────────────────────────────────────────────────────────
+  function showToast(msg) {
+    const t = document.getElementById('copyToast');
+    t.textContent = msg || '✓ Copied!';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1800);
+  }
 
-    async function loadSites() {
-      try {
-        const res = await fetch("/api/sites?include_credentials=1");
-        const data = await res.json();
-        if (!res.ok) {
-          document.getElementById("sitesGrid").innerHTML = `<div style="color:#ff1744">${data.error || "Failed to load sites."}</div>`;
-          return;
-        }
-        const sites = data;
-        document.getElementById("siteCount").textContent = sites.length + " sites";
-        document.getElementById("sitesGrid").innerHTML = sites.map(s => `
-          <div class="site-item">
-            <div class="site-name">🌐 ${s.name}</div>
-            <div class="site-url">${s.url}</div>
-            <div class="site-id-row">
-              <div><div class="label">Site ID</div><div class="val">${s.id}</div></div>
-              <button class="copy-btn" onclick="copyText('${s.id}', this)">Copy ID</button>
-            </div>
-            <div class="site-id-row">
-              <div><div class="label">API Key</div><div class="val">${s.api_key}</div></div>
-              <button class="copy-btn" onclick="copyText('${s.api_key}', this)">Copy Key</button>
-            </div>
-          </div>`).join("");
-      } catch(e) {
-        document.getElementById("sitesGrid").innerHTML = '<div style="color:#ff1744">Failed to load sites. Is the server running?</div>';
+  function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (btn) { const orig = btn.textContent; btn.textContent = '✓ COPIED'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000); }
+      else showToast();
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta); showToast();
+    });
+  }
+
+  function copyCode(blockId) {
+    const block = document.getElementById(blockId);
+    const btn   = block.querySelector('.copy-code-btn');
+    const text  = block.querySelector('pre').innerText;
+    copyText(text, btn);
+  }
+
+  // ── Load sites + fill credentials ────────────────────────────────────────
+  const PLATFORM_SLOTS = {
+    html: { soc:'socUrlHtml', site:'siteIdHtml', key:'apiKeyHtml' },
+    wp:   { soc:'socUrlWp',   site:'siteIdWp',   key:'apiKeyWp'  },
+    next: { soc:'socUrlNext', site:'siteIdNext',  key:'apiKeyNext'},
+    php:  { soc:'socUrlPhp',  site:'siteIdPhp',   key:'apiKeyPhp' },
+    dj:   { soc:'socUrlDjango',site:'siteIdDjango',key:'apiKeyDjango'},
+  };
+
+  function fillCodeBlocks(siteId, apiKey) {
+    Object.values(PLATFORM_SLOTS).forEach(s => {
+      const socEl  = document.getElementById(s.soc);
+      const siteEl = document.getElementById(s.site);
+      const keyEl  = document.getElementById(s.key);
+      if (socEl)  socEl.textContent  = BASE;
+      if (siteEl) siteEl.textContent = siteId;
+      if (keyEl)  keyEl.textContent  = apiKey;
+    });
+  }
+
+  async function loadSites() {
+    const grid = document.getElementById('sitesGrid');
+    try {
+      // Load sites list
+      const sitesRes = await fetch(BASE + '/api/sites');
+      const sites    = sitesRes.ok ? await sitesRes.json() : [];
+      // Load user's site
+      const meRes    = await fetch(BASE + '/api/me');
+      const me       = meRes.ok ? await meRes.json() : {};
+      // Load api key for user's site
+      let userApiKey = '—';
+      if (me.site_id) {
+        const keyRes = await fetch(BASE + '/api/my-site-key');
+        if (keyRes.ok) { const kd = await keyRes.json(); userApiKey = kd.api_key || '—'; }
       }
-    }
 
-    function showToast() {
-      const t = document.getElementById('copyToast');
-      t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), 1800);
-    }
+      document.getElementById('siteCount').textContent = sites.length ? `(${sites.length})` : '';
 
-    function copyText(t, btn) {
-      navigator.clipboard.writeText(t).then(() => {
-        if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.color='#00ff88'; setTimeout(()=>{ btn.textContent=orig; btn.style.color=''; }, 1800); }
-        showToast();
-      }).catch(() => {});
-    }
+      if (!sites.length) {
+        grid.innerHTML = `<div class="empty-sites">
+          <div style="font-size:2rem;margin-bottom:12px;">📡</div>
+          <div style="font-weight:700;color:#e8eaf6;margin-bottom:6px;">No sites registered yet</div>
+          <div>Go to the dashboard → Site Monitor tab → register your first site to get your deploy credentials.</div>
+        </div>`;
+        return;
+      }
 
-    function copySnippet() {
-      const txt = `<!-- SOC Monitoring Agent -->\n<script src="${BASE_URL}/static/agent.js"\n        data-site="YOUR_SITE_ID"\n        data-key="YOUR_API_KEY"><\/script>`;
-      navigator.clipboard.writeText(txt).then(() => showToast()).catch(() => {});
-    }
+      // Auto-fill code blocks with user's first site
+      const userSite = sites.find(s => s.id === me.site_id) || sites[0];
+      fillCodeBlocks(userSite.id, userSite.id === me.site_id ? userApiKey : 'YOUR_API_KEY');
 
-    function copyCurl() {
-      const txt = `Invoke-RestMethod -Uri "${BASE_URL}/api/agent/report" \`\n  -Method POST -ContentType "application/json" \`\n  -Body '{"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142","method":"POST","path":"/admin/login","user_agent":"python-requests/2.28","referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'`;
-      navigator.clipboard.writeText(txt).then(() => showToast()).catch(() => {});
-    }
+      grid.innerHTML = sites.map(s => {
+        const isUserSite = s.id === me.site_id;
+        const apiKey     = isUserSite ? userApiKey : '••••••••••••••••';
+        const canCopyKey = isUserSite;
+        return `<div class="site-card" onclick="fillCodeBlocks('${s.id}', '${isUserSite ? userApiKey : 'YOUR_API_KEY'}')">
+          <div class="sc-header">
+            <span class="sc-dot"></span>
+            <div>
+              <div class="sc-name">${s.name || s.id}</div>
+              <div class="sc-url">${s.url || '—'}</div>
+            </div>
+          </div>
+          <div class="sc-stat">
+            <div class="sta"><div class="sta-val cyan">${s.total_events||0}</div><div class="sta-lbl">Events</div></div>
+            <div class="sta"><div class="sta-val red">${s.total_attacks||0}</div><div class="sta-lbl">Attacks</div></div>
+            <div class="sta"><div class="sta-val green">${s.total_events > 0 ? '🟢' : '⚪'}</div><div class="sta-lbl">Status</div></div>
+          </div>
+          <div class="cred-row">
+            <span class="cred-lbl">Site ID</span>
+            <span class="cred-val">${s.id}</span>
+            <button class="cred-copy" onclick="event.stopPropagation();copyText('${s.id}',this)">COPY</button>
+          </div>
+          <div class="cred-row">
+            <span class="cred-lbl">API Key</span>
+            <span class="cred-val">${apiKey}</span>
+            ${canCopyKey ? `<button class="cred-copy" onclick="event.stopPropagation();copyText('${userApiKey}',this)">COPY</button>` : '<span style="font-size:.62rem;color:#3a4a5a;">Login as site user</span>'}
+          </div>
+          <div class="sc-status">
+            <span class="status-dot-sm"></span>
+            ${isUserSite ? '<span style="color:var(--green);font-weight:600;">Your organisation\'s site</span>' : 'Monitored site'}
+            &nbsp;·&nbsp; ${s.total_events||0} events recorded
+          </div>
+        </div>`;
+      }).join('');
 
-    loadSites();
-  </script>
+    } catch(e) {
+      grid.innerHTML = '<div class="empty-sites">Could not load sites. Are you logged in?</div>';
+    }
+  }
+
+  // ── Test event ───────────────────────────────────────────────────────────
+  async function sendTestEvent() {
+    const meRes = await fetch(BASE + '/api/me').catch(() => null);
+    const me    = meRes && meRes.ok ? await meRes.json() : {};
+    if (!me.site_id) {
+      document.getElementById('ltResult').textContent = '⚠ Please link your account to a site first (Authorization page).';
+      document.getElementById('ltResult').style.color = '#ff9100';
+      document.getElementById('ltResult').classList.add('show');
+      return;
+    }
+    const keyRes = await fetch(BASE + '/api/my-site-key').catch(() => null);
+    const kd     = keyRes && keyRes.ok ? await keyRes.json() : {};
+    const payload = {
+      site_id   : me.site_id,
+      api_key   : kd.api_key || '',
+      ip        : '203.0.113.1',    // TEST-NET IP (not a real IP)
+      method    : 'GET',
+      path      : '/test-deploy-verification',
+      user_agent: 'SOC-Agent-Test/3.0',
+      bytes_in  : 42,
+      event_type: 'deployment_test',
+      referer   : window.location.href,
+    };
+    try {
+      const r = await fetch(BASE + '/api/agent/report', {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify(payload),
+      });
+      const d = await r.json();
+      const res = document.getElementById('ltResult');
+      res.style.color = '#00ff88';
+      res.textContent = `✅ Test event received! Classification: ${d.attack||'normal'} | Severity: ${d.severity||'None'} | Check your dashboard Site Monitor tab.`;
+      res.classList.add('show');
+    } catch(e) {
+      const res = document.getElementById('ltResult');
+      res.style.color = '#ff5252';
+      res.textContent = '❌ Could not reach SOC server. Make sure you are logged in and on the correct URL.';
+      res.classList.add('show');
+    }
+  }
+
+  loadSites();
+</script>
 </body>
 </html>

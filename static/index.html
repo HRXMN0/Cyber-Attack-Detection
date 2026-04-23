@@ -180,6 +180,18 @@
       </div>
     </div>
 
+    <!-- Site Attack Alerts from Monitored Sites -->
+    <div class="panel-block" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+      <div class="panel-title">
+        <span class="pulse-dot red"></span> SITE ATTACK ALERTS
+        <span class="count-badge" id="siteAlertCount">0</span>
+        <a href="/embed" style="margin-left:auto;font-size:.58rem;color:#00e5ff;text-decoration:none;border:1px solid rgba(0,229,255,.2);padding:2px 8px;border-radius:5px;white-space:nowrap;">⚙ Deploy Agent</a>
+      </div>
+      <div id="siteAlertsList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;scrollbar-width:thin;scrollbar-color:rgba(0,229,255,.15) transparent;">
+        <div class="empty-state-sm">Waiting for monitored site data…</div>
+      </div>
+    </div>
+
     <!-- Controls: Manual block -->
     <div class="panel-block">
       <div class="panel-title"><span class="dot purple"></span> MANUAL CONTROLS</div>
@@ -228,5 +240,13 @@
 </div>
 
 <script src="/static/script.js"></script>
+
+<!-- Attacker Detail Modal -->
+<div id="attackerModal" style="display:none;position:fixed;inset:0;z-index:9500;background:rgba(2,4,9,.85);backdrop-filter:blur(16px);align-items:center;justify-content:center;">
+  <div id="attackerModalInner" style="max-width:580px;width:90%;background:#040c1c;border:1px solid rgba(0,229,255,.2);border-radius:18px;padding:28px 32px;position:relative;animation:cardIn .3s ease;">
+    <button onclick="document.getElementById('attackerModal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#8892b0;font-size:1.2rem;cursor:pointer;">✕</button>
+    <div id="attackerModalContent"></div>
+  </div>
+</div>
 </body>
 </html>

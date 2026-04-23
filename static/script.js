@@ -1027,4 +1027,206 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   aiTerm.add('ok', 'Globe engine online — tracking global threat vectors');
+
+  // Start site attack alerts engine
+  siteAlerts = new SiteAlertsEngine();
 });
+
+// =============================================================================
+// SITE ALERTS ENGINE — Real-time attack details from monitored external sites
+// =============================================================================
+class SiteAlertsEngine {
+  constructor() {
+    this.el          = document.getElementById('siteAlertsList');
+    this.countEl     = document.getElementById('siteAlertCount');
+    this.seen        = new Set();
+    this.MAX_CARDS   = 20;
+    this.pollInterval= 5000;
+    this.poll();
+    setInterval(() => this.poll(), this.pollInterval);
+  }
+
+  async poll() {
+    try {
+      const r = await fetch(BASE_URL + '/api/live-attacks?limit=20');
+      if (!r.ok) return;
+      const data   = await r.json();
+      const attacks = (data.attacks || []);
+      if (!attacks.length) {
+        if (!this.seen.size) this.setEmpty();
+        return;
+      }
+      let newCount = 0;
+      attacks.forEach(a => {
+        if (!this.seen.has(a.id)) {
+          this.seen.add(a.id);
+          this.renderCard(a, newCount === 0);
+          newCount++;
+        }
+      });
+      this.countEl.textContent = this.seen.size;
+      if (newCount > 0) {
+        // Log to AI terminal
+        const latest = attacks[0];
+        aiTerm && aiTerm.add('warn',
+          `[SITE ALERT] ${latest.flag||'🌐'} ${latest.ip} → ${latest.site_id} — ${latest.attack} (${latest.severity})`,
+          latest.severity === 'critical'
+        );
+        // Sound
+        if (sound && (latest.severity === 'critical' || latest.severity === 'high')) sound.alarm();
+        // Show toast
+        showToast(
+          `🚨 ${latest.flag||'🌐'} ${latest.ip} attacked ${latest.site_id}`,
+          latest.severity === 'critical' ? 'danger' : 'warning',
+          4000
+        );
+      }
+    } catch(_) {}
+  }
+
+  setEmpty() {
+    this.el.innerHTML = `<div class="empty-state-sm">No attacks from monitored sites yet.<br>
+      <a href="/embed" style="color:#00e5ff;font-size:.65rem;text-decoration:none;">→ Deploy agent to a website</a>
+    </div>`;
+  }
+
+  renderCard(a, isNewest) {
+    // Remove "empty" state
+    const empty = this.el.querySelector('.empty-state-sm');
+    if (empty) empty.remove();
+
+    const sevColor = { critical:'#ff1744', high:'#ff6d00', medium:'#ffd600', low:'#64dd17', none:'#8892b0' };
+    const sev  = (a.severity||'none').toLowerCase();
+    const clr  = sevColor[sev] || '#8892b0';
+    const isBlocked = a.is_blocked || sev === 'critical';
+    const time_ = a.timestamp ? new Date(a.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+    const path  = a.path ? a.path.substring(0, 35) + (a.path.length > 35 ? '…' : '') : '/';
+    const ua    = a.user_agent ? a.user_agent.substring(0, 42) + (a.user_agent.length > 42 ? '…' : '') : '—';
+    const org   = a.org   ? a.org.substring(0, 30)  : '—';
+    const city  = [a.city, a.region, a.country_name].filter(Boolean).join(', ') || '—';
+
+    const card = document.createElement('div');
+    card.dataset.alertId = a.id;
+    card.style.cssText = `
+      background: rgba(${sev==='critical'?'255,23,68':'sev==="high"?255,109,0':0+',229,255'}, 0.05);
+      border: 1px solid ${clr}33;
+      border-left: 3px solid ${clr};
+      border-radius: 10px; padding: 10px 12px;
+      cursor: pointer; transition: .2s;
+      animation: blockIn .35s ease;
+      flex-shrink: 0;
+    `;
+    if (sev === 'critical' || sev === 'high') {
+      card.style.background = `rgba(255,23,68,0.07)`;
+    }
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:1rem;">${a.flag||'🌐'}</span>
+          <span style="font-family:'Share Tech Mono',monospace;font-size:.75rem;color:${clr};font-weight:700;">${a.ip||'—'}</span>
+          <span style="font-size:.58rem;background:${clr}22;color:${clr};border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:.5px;">${(a.severity||'?').toUpperCase()}</span>
+        </div>
+        <span style="font-size:.58rem;color:#4a6080;font-family:'Share Tech Mono',monospace;">${time_}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:.66rem;">
+        <div style="color:#4a6080;">Attack → <span style="color:#e8eaf6;">${(a.attack||'normal').toUpperCase()}</span></div>
+        <div style="color:#4a6080;">Site → <span style="color:#00e5ff;">${a.site_id||'—'}</span></div>
+        <div style="color:#4a6080;">Path → <span style="color:#8892b0;font-family:monospace;">${path}</span></div>
+        <div style="color:#4a6080;">Location → <span style="color:#8892b0;">${city}</span></div>
+        <div style="color:#4a6080;">ISP → <span style="color:#8892b0;">${org}</span></div>
+        <div style="color:#4a6080;">Status → <span style="color:${isBlocked?'#ff1744':'#00ff88'}">${isBlocked?'🚫 Blocked':'✅ Monitoring'}</span></div>
+      </div>
+    `;
+    card.addEventListener('click', () => showAttackerModal(a));
+    card.addEventListener('mouseenter', () => { card.style.borderColor = clr+'66'; card.style.boxShadow = `0 0 16px ${clr}18`; });
+    card.addEventListener('mouseleave', () => { card.style.borderColor = clr+'33'; card.style.boxShadow = ''; });
+
+    this.el.prepend(card);
+
+    // Trim old cards
+    while (this.el.children.length > this.MAX_CARDS) {
+      this.el.removeChild(this.el.lastChild);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTACKER DETAIL MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function showAttackerModal(a) {
+  const modal = document.getElementById('attackerModal');
+  const inner = document.getElementById('attackerModalContent');
+  const sev   = (a.severity||'none').toLowerCase();
+  const sevC  = { critical:'#ff1744', high:'#ff6d00', medium:'#ffd600', low:'#64dd17', none:'#8892b0' };
+  const clr   = sevC[sev] || '#8892b0';
+  const city  = [a.city, a.region, a.country_name].filter(Boolean).join(', ') || 'Unknown';
+  const time_ = a.timestamp ? new Date(a.timestamp).toLocaleString() : '—';
+  const isBlocked = a.is_blocked || sev === 'critical';
+
+  inner.innerHTML = `
+    <div style="margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <span style="font-size:2rem;">${a.flag||'🌐'}</span>
+        <div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:.7rem;letter-spacing:2px;color:#4a6080;margin-bottom:2px;">ATTACKER PROFILE</div>
+          <div style="font-size:1.3rem;font-weight:800;font-family:'Share Tech Mono',monospace;color:${clr};">${a.ip||'—'}</div>
+        </div>
+        <div style="margin-left:auto;text-align:right;">
+          <div style="background:${clr}22;color:${clr};border:1px solid ${clr}44;border-radius:8px;padding:4px 12px;font-family:'Orbitron',sans-serif;font-size:.62rem;font-weight:700;letter-spacing:1.5px;">${(a.severity||'?').toUpperCase()}</div>
+          <div style="font-size:.6rem;color:#4a6080;margin-top:4px;">${isBlocked?'🚫 QUARANTINED':'✅ MONITORING'}</div>
+        </div>
+      </div>
+      <div style="height:1px;background:rgba(0,229,255,.08);margin:14px 0;"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+      ${modalRow('🎯 Attack Type',   (a.attack||'normal').toUpperCase(), clr)}
+      ${modalRow('🌍 Country',       a.country_name || a.country || '—')}
+      ${modalRow('🏙️ City',          city)}
+      ${modalRow('🏢 ISP / Org',     a.org || '—')}
+      ${modalRow('📡 Method',        a.method || 'GET')}
+      ${modalRow('🔗 Targeted Path', a.path || '/')}
+      ${modalRow('↩️ Referrer',      a.referer || '—')}
+      ${modalRow('📊 Bytes-In',      a.bytes_in ? (a.bytes_in + ' B') : '—')}
+      ${modalRow('📍 Coordinates',   a.lat && a.lon ? `${parseFloat(a.lat).toFixed(2)}, ${parseFloat(a.lon).toFixed(2)}` : '—')}
+      ${modalRow('🌐 Site Target',   a.site_id || '—', '#00e5ff')}
+      ${modalRow('⏱ Timestamp',     time_)}
+      ${modalRow('🖥 Status',        isBlocked ? '🚫 Blocked' : '✅ Monitoring', isBlocked ? '#ff1744' : '#00ff88')}
+    </div>
+
+    <div style="background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:.58rem;color:#4a6080;letter-spacing:1.5px;margin-bottom:6px;text-transform:uppercase;">User-Agent</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:.7rem;color:#8892b0;word-break:break-all;line-height:1.5;">${a.user_agent||'—'}</div>
+    </div>
+
+    <div style="display:flex;gap:10px;">
+      <button onclick="copyAttackerIP('${a.ip}')" style="flex:1;padding:9px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);border-radius:9px;color:#00e5ff;font-family:'Share Tech Mono',monospace;font-size:.72rem;font-weight:700;cursor:pointer;letter-spacing:1px;">📋 COPY IP</button>
+      ${!isBlocked ? `<button onclick="blockFromModal('${a.ip}')" style="flex:1;padding:9px;background:rgba(255,23,68,.12);border:1px solid rgba(255,23,68,.35);border-radius:9px;color:#ff1744;font-family:'Share Tech Mono',monospace;font-size:.72rem;font-weight:700;cursor:pointer;letter-spacing:1px;">🔒 BLOCK IP</button>` : ''}
+      <button onclick="document.getElementById('attackerModal').style.display='none'" style="padding:9px 16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:9px;color:#8892b0;font-size:.72rem;cursor:pointer;">CLOSE</button>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.style.display='none'; }, { once:true });
+}
+
+function modalRow(label, value, valColor) {
+  return `<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;overflow:hidden;">
+    <div style="font-size:.58rem;color:#4a6080;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;">${label}</div>
+    <div style="font-family:'Share Tech Mono',monospace;font-size:.74rem;font-weight:600;color:${valColor||'#e8eaf6'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${value}">${value||'—'}</div>
+  </div>`;
+}
+
+function copyAttackerIP(ip) {
+  navigator.clipboard.writeText(ip).then(() => showToast('✓ IP copied: ' + ip, 'success'));
+}
+
+function blockFromModal(ip) {
+  document.getElementById('attackerModal').style.display = 'none';
+  document.getElementById('manualIp').value = ip;
+  window.SOC && window.SOC.manualBlock();
+}
+
+// Declare siteAlerts at module scope
+let siteAlerts;
+
