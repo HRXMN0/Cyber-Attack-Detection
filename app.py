@@ -318,13 +318,18 @@ def auth_login():
             return redirect(url_for("auth_login"))
         user = User(user_data)
         login_user(user, remember=True)
-        # If no site linked yet, go to authorization page
+        # Admin: skip site authorization — has access to all sites
+        if user.role == 'admin':
+            flash(f"Welcome, {user.name}! 🛡️ SOC Admin — viewing all sites.", "success")
+            return redirect(url_for("index"))
+        # Regular user: if no site linked yet, go to authorization page
         if not user.site_id:
-            flash(f"Welcome back, {user.name}! Please complete authorization.", "success")
+            flash(f"Welcome back, {user.name}! Please link your organisation site.", "success")
             return redirect(url_for("auth_authorize"))
-        flash(f"Welcome back, {user.name}! 👋", "success")
+        flash(f"Welcome back, {user.name}!", "success")
         return redirect(url_for("index"))
     return render_template("login.html")
+
 
 
 @app.route("/auth/signup", methods=["GET", "POST"])
@@ -370,8 +375,12 @@ def auth_signup():
 @login_required
 def auth_authorize():
     """Step 2 after registration: link account to a monitored site via Site ID + API Key."""
+    # Admin users never need site authorization
+    if current_user.role == 'admin':
+        return redirect(url_for("index"))
     if current_user.site_id:     # Already authorized
         return redirect(url_for("index"))
+
     if request.method == "POST":
         site_id_input = request.form.get("site_id", "").strip().lower()
         api_key_input = request.form.get("api_key",  "").strip()
