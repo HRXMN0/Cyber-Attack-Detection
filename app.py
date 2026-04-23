@@ -42,7 +42,7 @@ from database import (
     db_add_history, db_get_history_count,
     db_increment_failed, db_get_failed_count,
     db_get_sites, db_validate_api_key, db_get_logs_by_site,
-    db_create_user, db_get_user_by_email, db_get_user_by_id, supabase,
+    db_create_user, db_get_user_by_email, db_get_user_by_id, get_db,
     db_update_user_site,
 )
 
@@ -274,22 +274,27 @@ def get_geoip(ip: str) -> dict:
 def serialize_sites_for_response(sites: list[dict], include_credentials: bool = False) -> list[dict]:
     """Attach per-site metrics while respecting tenant visibility."""
     result = []
-    for site in sites:
-        c_res = supabase.table("attack_log").select("*", count="exact", head=True).eq("site_id", site["id"]).execute()
-        count = c_res.count or 0
-        a_res = supabase.table("attack_log").select("*", count="exact", head=True).eq("site_id", site["id"]).neq("severity", "None").execute()
-        attacks = a_res.count or 0
-        item = {
-            "id":            site["id"],
-            "name":          site["name"],
-            "url":           site["url"],
-            "created_at":    site["created_at"],
-            "total_events":  count,
-            "total_attacks": attacks,
-        }
-        if include_credentials:
-            item["api_key"] = site["api_key"]
-        result.append(item)
+    with get_db() as conn:
+        for site in sites:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM attack_log WHERE site_id = ?",
+                (site["id"],),
+            ).fetchone()[0]
+            attacks = conn.execute(
+                "SELECT COUNT(*) FROM attack_log WHERE site_id = ? AND severity != 'None'",
+                (site["id"],),
+            ).fetchone()[0]
+            item = {
+                "id":            site["id"],
+                "name":          site["name"],
+                "url":           site["url"],
+                "created_at":    site["created_at"],
+                "total_events":  count,
+                "total_attacks": attacks,
+            }
+            if include_credentials:
+                item["api_key"] = site["api_key"]
+            result.append(item)
     return result
 
 
@@ -760,21 +765,33 @@ def api_live_attacks():
             return jsonify({"attacks": [], "total": 0}), 200
         site_id = user_site
 
-    # Fetch attack rows
-    q = supabase.table("attack_log").select("id, ip, attack, severity, timestamp, created_at, site_id, user_agent, method, path, referer, country, city, asn, bytes_in").neq("severity", "None")
-    if site_id:
-        q = q.eq("site_id", site_id)
-    if since:
-        q = q.gt("timestamp", since)
-    res = q.order("id", desc=True).limit(limit).execute()
-    rows = res.data
+    # Fetch attack rows (no 'blocked' column — derive from blocked_ips)
+    with get_db() as conn:
+        query = """
+            SELECT id, ip, attack, severity, timestamp, created_at, site_id,
+                   user_agent, method, path, referer, country, city, asn, bytes_in
+            FROM attack_log
+            WHERE severity != 'None'
+        """
+        params: list = []
+        if site_id:
+            query  += " AND site_id = ?"
+            params.append(site_id)
+        if since:
+            query  += " AND timestamp > ?"
+            params.append(since)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
 
-    # Fetch blocked IPs for this scope (to set is_blocked flag)
-    if site_id:
-        b_res = supabase.table("site_blocked_ips").select("ip").eq("site_id", site_id).execute()
-    else:
-        b_res = supabase.table("site_blocked_ips").select("ip").execute()
-    blocked_set = {r["ip"] for r in b_res.data}
+        # Fetch blocked IPs for this scope (to set is_blocked flag)
+        if site_id:
+            blocked_rows = conn.execute(
+                "SELECT ip FROM blocked_ips WHERE site_id = ?", (site_id,)
+            ).fetchall()
+        else:
+            blocked_rows = conn.execute("SELECT ip FROM blocked_ips").fetchall()
+        blocked_set = {r["ip"] for r in blocked_rows}
 
     results = []
     for row in rows:
