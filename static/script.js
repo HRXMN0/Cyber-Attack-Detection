@@ -684,12 +684,25 @@ const PROTOCOLS = ['TCP','UDP','ICMP','HTTP','HTTPS','DNS','SMTP'];
 const PORTS     = [21,22,23,25,53,80,110,135,139,143,443,445,3306,3389,8080];
 const ATTACK_SIGS_SHORT = { neptune:'SYN Flood', portsweep:'Port Scan', smurf:'ICMP Amp', satan:'SATAN Scan', ipsweep:'IP Sweep', back:'Apache OVF', bruteforce:'Brute Force', nmap:'Nmap Scan', teardrop:'Teardrop', pod:'Ping of Death', normal:'Normal' };
 
+// ── Global dashboard state ───────────────────────────────────────────────
+let _isDemoMode  = false;   // true when admin is viewing all-sites data
+let _siteFilter  = null;    // current user's site_id (null for admin)
+let _userRole    = 'user';
+
 function updateDashboard(data) {
   const logs     = data.attack_log || [];
   const blocked  = data.blocked_ips || [];
   const total    = data.total_events || 0;
   const attacks  = logs.filter(e => sevClass(e.severity) !== 'none').length;
   blockedCount   = blocked.length;
+
+  // Store mode flags from backend response
+  _isDemoMode = !!(data.is_demo);
+  _siteFilter = data.site_filter || null;
+  _userRole   = data.user_role   || 'user';
+
+  // Show dashboard context badge
+  _renderContextBanner(_isDemoMode, _siteFilter, total, attacks);
 
   // Header quick stats
   document.getElementById('hdrEvents').textContent  = total;
@@ -711,8 +724,8 @@ function updateDashboard(data) {
   logs.forEach(e => { if (sevOrder[sevClass(e.severity)] > sevOrder[maxSev]) maxSev = sevClass(e.severity); });
   updateThreatLevel(maxSev, attacks);
 
-  // Update attack table (last 40 events)
-  updateTable(logs.slice(-40).reverse());
+  // Update attack table — pass isDemoMode so company labels show for admin
+  updateTable(logs.slice(-40).reverse(), _isDemoMode);
 
   // Blocked IPs
   updateBlockedList(blocked);
@@ -738,6 +751,43 @@ function updateDashboard(data) {
   // Count badge
   document.getElementById('blockedCount').textContent = blockedCount;
 }
+
+// ── Context banner: shows admin vs user scope ────────────────────────────
+function _renderContextBanner(isDemo, siteFilter, totalEvts, attackEvts) {
+  let el = document.getElementById('_contextBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_contextBanner';
+    el.style.cssText = [
+      'position:fixed','bottom:20px','right:20px','z-index:9000',
+      'padding:8px 16px 8px 12px','border-radius:10px',
+      'font-family:"Share Tech Mono",monospace','font-size:.68rem',
+      'backdrop-filter:blur(10px)','border:1px solid',
+      'display:flex','align-items:center','gap:8px','cursor:default',
+      'transition:opacity .3s','box-shadow:0 4px 20px rgba(0,0,0,.4)',
+    ].join(';');
+    document.body.appendChild(el);
+  }
+  if (isDemo) {
+    el.style.background = 'rgba(0,229,255,0.1)';
+    el.style.borderColor = 'rgba(0,229,255,0.3)';
+    el.style.color       = '#00e5ff';
+    el.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:#00e5ff;display:inline-block;box-shadow:0 0 6px #00e5ff;"></span>
+      ADMIN VIEW &nbsp;·&nbsp; ALL SITES &nbsp;·&nbsp;
+      <strong>${totalEvts}</strong> events &nbsp;
+      <span style="color:#ff6d00;">${attackEvts} attacks</span>`;
+  } else if (siteFilter) {
+    el.style.background = 'rgba(0,255,136,0.08)';
+    el.style.borderColor = 'rgba(0,255,136,0.25)';
+    el.style.color       = '#00ff88';
+    el.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:#00ff88;display:inline-block;box-shadow:0 0 6px #00ff88;"></span>
+      SITE: <strong style="color:#fff;text-transform:uppercase;">${siteFilter}</strong>
+      &nbsp;·&nbsp; ${totalEvts} events`;
+  } else {
+    el.style.opacity = '0';
+  }
+}
+
 
 function updateThreatLevel(sev, attackCount) {
   const pct    = { none:3, low:20, medium:45, high:70, critical:95 }[sev] || 3;
@@ -767,9 +817,27 @@ function updateThreatLevel(sev, attackCount) {
   }
 }
 
-function updateTable(logs) {
+function updateTable(logs, isDemo) {
   const tbody = document.getElementById('attackTableBody');
-  if (!logs.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No events yet…</td></tr>'; return; }
+  // Show COMPANY column header only in admin/demo mode
+  const thead = tbody.closest('table').querySelector('thead tr');
+  if (isDemo) {
+    if (!thead.querySelector('.col-company')) {
+      const th = document.createElement('th');
+      th.className = 'col-company';
+      th.textContent = 'COMPANY';
+      th.style.cssText = 'color:#00e5ff;font-size:.58rem;';
+      thead.insertBefore(th, thead.children[2]); // insert before TYPE column
+    }
+  } else {
+    const old = thead.querySelector('.col-company');
+    if (old) old.remove();
+  }
+
+  if (!logs.length) {
+    tbody.innerHTML = `<tr><td colspan="${isDemo?6:5}" class="empty-row">No events yet…</td></tr>`;
+    return;
+  }
 
   const frag = document.createDocumentFragment();
   logs.forEach((e, idx) => {
@@ -779,20 +847,45 @@ function updateTable(logs) {
     const isBlocked = sev === 'critical' || sev === 'high';
     const ipHash = (e.ip||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
     const attacker = ATTACKERS[ipHash % ATTACKERS.length];
-    const proto  = PROTOCOLS[ipHash % PROTOCOLS.length];
-    const port   = PORTS[ipHash % PORTS.length];
-    const bytes  = fmtBytes((ipHash*137%900+64)*1024);
-    tr.innerHTML =
+
+    // Company badge for admin/demo mode
+    const siteId    = e.site_id || '';
+    const siteLabel = isDemo && siteId
+      ? `<span style="background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.2);border-radius:5px;padding:1px 6px;font-size:.55rem;color:#00e5ff;font-family:'Share Tech Mono',monospace;white-space:nowrap;">${siteId}</span>`
+      : '';
+
+    // Country flag from DB or attacker data
+    const countryCC  = (e.country || '').toUpperCase();
+    const flagEmoji  = _CC_TO_FLAG_JS[countryCC] || attacker.flag;
+
+    let rowHTML =
       `<td>${fmtTime(e.timestamp)}</td>` +
-      `<td>${e.ip||'—'}&nbsp;<span style="font-size:.55rem;color:#4a6080">${attacker.flag}</span></td>` +
+      `<td>${e.ip||'—'}&nbsp;<span style="font-size:.6rem">${flagEmoji}</span></td>`;
+
+    if (isDemo) rowHTML += `<td>${siteLabel || '<span style="color:#3a4a5a;">—</span>'}</td>`;
+
+    rowHTML +=
       `<td>${ATTACK_SIGS_SHORT[e.attack]||e.attack||'—'}</td>` +
       `<td><span class="sev-badge ${sev}">${e.severity||'—'}</span></td>` +
       `<td><span class="status-chip ${isBlocked?'blocked-chip':'allowed-chip'}">${isBlocked?'🚫 Blocked':'✅ Allow'}</span></td>`;
+
+    tr.innerHTML = rowHTML;
+    tr.style.cursor = 'pointer';
+    tr.title = `IP: ${e.ip}  |  Path: ${e.path||'/'}  |  UA: ${(e.user_agent||'').substring(0,60)}`;
     frag.appendChild(tr);
   });
   tbody.innerHTML = '';
   tbody.appendChild(frag);
 }
+
+// Country code → flag emoji (JS side for live rows)
+const _CC_TO_FLAG_JS = {
+  RU:'🇷🇺',CN:'🇨🇳',US:'🇺🇸',IN:'🇮🇳',IR:'🇮🇷',KP:'🇰🇵',NG:'🇳🇬',UA:'🇺🇦',
+  BR:'🇧🇷',DE:'🇩🇪',FR:'🇫🇷',GB:'🇬🇧',JP:'🇯🇵',KR:'🇰🇷',PK:'🇵🇰',BD:'🇧🇩',
+  ID:'🇮🇩',VN:'🇻🇳',TR:'🇹🇷',MX:'🇲🇽',AU:'🇦🇺',CA:'🇨🇦',NL:'🇳🇱',SE:'🇸🇪',
+  PL:'🇵🇱',RO:'🇷🇴',HK:'🇭🇰',SG:'🇸🇬',TH:'🇹🇭',PH:'🇵🇭',MY:'🇲🇾',
+};
+
 
 function updateBlockedList(ips) {
   const list = document.getElementById('blockedList');

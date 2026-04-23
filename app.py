@@ -506,9 +506,9 @@ def login():
 @login_required
 def dashboard():
     """
-    Return dashboard data.
-    - Admin users: return all tenant data.
-    - Company users: return only their linked site data.
+    Return dashboard data scoped by role:
+    - Admin / demo user  → ALL data from every site (labelled by site_id).
+    - Company user       → ONLY their own site_id data.
     """
     if is_admin_user():
         return jsonify({
@@ -516,6 +516,8 @@ def dashboard():
             "blocked_ips":  db_get_blocked_ips(),
             "attack_log":   db_get_all_logs(),
             "site_filter":  None,
+            "is_demo":      True,    # dashboard JS uses this to show company labels
+            "user_role":    "admin",
         }), 200
 
     user_site = getattr(current_user, "site_id", None)
@@ -528,6 +530,8 @@ def dashboard():
         "blocked_ips":  db_get_blocked_ips(site_id=user_site),
         "attack_log":   logs,
         "site_filter":  user_site,
+        "is_demo":      False,
+        "user_role":    "user",
     }), 200
 
 
@@ -735,23 +739,27 @@ def api_my_site_key():
 @login_required
 def api_live_attacks():
     """
-    Returns recent attack events enriched with full attacker details including GeoIP.
+    Returns recent attack events enriched with full attacker details + GeoIP.
+    - Admin  → sees ALL sites' attacks, each labelled with site_id.
+    - User   → sees ONLY their own site.
     Used by the SOC dashboard "Site Alerts" panel.
     """
+
     site_id = request.args.get("site_id", "")
     limit   = min(int(request.args.get("limit", 20)), 100)
-    since   = request.args.get("since", "")  # ISO timestamp filter
+    since   = request.args.get("since", "")
 
-    # Scope to user's site unless admin
+    # Non-admin: force to own site only
     if not is_admin_user():
         user_site = getattr(current_user, "site_id", None)
         if not user_site:
-            return jsonify({"attacks": []}), 200
-        site_id = user_site  # force to own site
+            return jsonify({"attacks": [], "total": 0}), 200
+        site_id = user_site
 
+    # Fetch attack rows (no 'blocked' column — derive from blocked_ips)
     with get_db() as conn:
         query = """
-            SELECT id, ip, attack, severity, timestamp, blocked, site_id,
+            SELECT id, ip, attack, severity, timestamp, created_at, site_id,
                    user_agent, method, path, referer, country, city, asn, bytes_in
             FROM attack_log
             WHERE severity != 'None'
@@ -767,20 +775,29 @@ def api_live_attacks():
         params.append(limit)
         rows = conn.execute(query, params).fetchall()
 
+        # Fetch blocked IPs for this scope (to set is_blocked flag)
+        if site_id:
+            blocked_rows = conn.execute(
+                "SELECT ip FROM blocked_ips WHERE site_id = ?", (site_id,)
+            ).fetchall()
+        else:
+            blocked_rows = conn.execute("SELECT ip FROM blocked_ips").fetchall()
+        blocked_set = {r["ip"] for r in blocked_rows}
+
     results = []
     for row in rows:
         d   = dict(row)
         ip  = d.get("ip", "")
         cc  = d.get("country", "") or ""
-        # Enrich with cached GeoIP (if available)
-        geo = get_geoip(ip)  # non-blocking
+        geo = get_geoip(ip)  # non-blocking — returns cached or fires background thread
         country_name = geo.get("country_name") or _country_name(cc) or "Unknown"
-        flag         = geo.get("flag") or _CC_TO_FLAG.get(cc.upper(), "🌐")
+        flag         = geo.get("flag") or _CC_TO_FLAG.get(cc.upper(), "\U0001f310")
         city         = d.get("city") or geo.get("city", "")
         region       = geo.get("region", "")
         org          = d.get("asn")  or geo.get("org", "")
         loc          = geo.get("loc", "")
         lat, lon     = (loc.split(",") + ["", ""])[:2] if loc else ("", "")
+        is_blocked   = ip in blocked_set
 
         results.append({
             **d,
@@ -791,7 +808,7 @@ def api_live_attacks():
             "org":          org,
             "lat":          lat,
             "lon":          lon,
-            "is_blocked":   bool(d.get("blocked")),
+            "is_blocked":   is_blocked,
         })
 
     return jsonify({"attacks": results, "total": len(results)}), 200
