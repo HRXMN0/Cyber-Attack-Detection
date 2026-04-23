@@ -447,7 +447,11 @@ def _seed_demo_sites():
     db_register_site("gov-portal",    "Government Portal",    "https://gov.example.in")
     db_register_site("finance-dept",  "Finance Department",   "https://finance.example.in")
     db_register_site("local",         "Local SOC Backend",    "http://127.0.0.1:5000")
-    print("[DB] Seeded 3 demo monitored sites.")
+    db_register_site("global-logi",   "Global Logistics Hub", "https://logistics.example.com")
+    db_register_site("health-net",    "Healthcare Network",   "https://medical.example.org")
+    db_register_site("tech-corp",     "TechCorp Systems",     "https://systems.techcorp.net")
+    db_register_site("edu-uni",       "State University",     "https://university.edu")
+    print("[DB] Seeded 7 demo monitored sites.")
 
 
 def _seed_demo_users():
