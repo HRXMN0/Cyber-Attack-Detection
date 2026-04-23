@@ -3,147 +3,448 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Sign Up — AI Cyber SOC</title>
+  <title>Create Account — AI Cyber SOC | Security Operations Center</title>
+  <meta name="description" content="Join the AI Cyber Attack Detection Platform — Secure multi-tenant SOC access for government and enterprise security teams"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
-    :root{--neon-cyan:#00e5ff;--neon-green:#00ff88;--neon-red:#ff1744;--bg:#060b18;--card-bg:rgba(10,20,40,0.85);--border:rgba(0,229,255,0.15);--text:#e8eaf6;--sub:#8892b0;}
-    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:24px 0;}
-    .bg-grid{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);background-size:44px 44px;animation:gridMove 20s linear infinite;}
-    @keyframes gridMove{0%{background-position:0 0}100%{background-position:44px 44px}}
-    .orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.18;animation:orbFloat 8s ease-in-out infinite;}
-    .orb1{width:400px;height:400px;background:#7c4dff;top:-100px;right:-100px;animation-delay:0s;}
-    .orb2{width:300px;height:300px;background:#00e5ff;bottom:-80px;left:-80px;animation-delay:-4s;}
-    @keyframes orbFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-30px)}}
-    .card{position:relative;z-index:10;width:100%;max-width:430px;padding:40px;background:var(--card-bg);border:1px solid var(--border);border-radius:20px;backdrop-filter:blur(20px);box-shadow:0 0 80px rgba(124,77,255,0.07),0 30px 60px rgba(0,0,0,0.5);animation:cardIn .5s cubic-bezier(.22,1,.36,1);}
-    @keyframes cardIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
-    .logo{display:flex;align-items:center;gap:12px;margin-bottom:24px;}
-    .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,#7c4dff22,#7c4dff55);border:1px solid #7c4dff44;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
-    .logo-text{font-size:1rem;font-weight:700;color:var(--neon-cyan);}
-    .logo-sub{font-size:0.7rem;color:var(--sub);}
-    h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
-    .subtitle{color:var(--sub);font-size:0.85rem;margin-bottom:24px;}
-    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:14px;font-weight:500;}
-    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
-    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
+    :root{
+      --neon:#00e5ff;--green:#00ff88;--red:#ff1744;--purple:#aa00ff;
+      --bg:#020409;--card:rgba(4,12,28,0.9);--border:rgba(0,229,255,0.12);
+      --text:#e8eaf6;--sub:#8892b0;--dim:#3a4a5a;
+      --mono:'Share Tech Mono',monospace;
+      --display:'Orbitron',sans-serif;
+      --sans:'Inter',sans-serif;
+    }
+    html,body{width:100%;min-height:100vh;}
+    body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;min-height:100vh;}
+
+    /* ── BG ───────────────────────────────────────── */
+    .bg-grid{
+      position:fixed;inset:0;z-index:0;
+      background-image:
+        linear-gradient(rgba(0,229,255,.03) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(0,229,255,.03) 1px,transparent 1px);
+      background-size:48px 48px;animation:gridMove 18s linear infinite;
+    }
+    @keyframes gridMove{0%{background-position:0 0}100%{background-position:48px 48px}}
+    .orb{position:fixed;border-radius:50%;filter:blur(70px);opacity:.1;animation:orbFloat 10s ease-in-out infinite;}
+    .orb1{width:450px;height:450px;background:var(--purple);top:-120px;right:-100px;}
+    .orb2{width:350px;height:350px;background:var(--neon);bottom:-80px;left:-100px;animation-delay:-5s;}
+    .orb3{width:200px;height:200px;background:var(--green);top:30%;right:20%;animation-delay:-8s;}
+    @keyframes orbFloat{0%,100%{transform:translate(0,0)}50%{transform:translate(10px,-18px)}}
+
+    /* ── LAYOUT ───────────────────────────────────── */
+    .layout{display:grid;grid-template-columns:1fr 470px;width:100%;min-height:100vh;position:relative;z-index:10;}
+
+    /* ── LEFT SIDE ────────────────────────────────── */
+    .left-side{
+      display:flex;flex-direction:column;justify-content:center;
+      padding:56px 64px;
+      border-right:1px solid var(--border);
+    }
+    .left-side::after{
+      content:'';position:absolute;top:0;bottom:0;right:470px;width:1px;
+      background:linear-gradient(180deg,transparent,rgba(0,229,255,.3),rgba(170,0,255,.3),transparent);
+    }
+
+    .soc-badge{
+      display:inline-flex;align-items:center;gap:8px;
+      background:linear-gradient(135deg,rgba(0,229,255,.06),rgba(170,0,255,.06));
+      border:1px solid rgba(170,0,255,.2);border-radius:99px;
+      padding:6px 16px;font-size:.65rem;font-weight:700;
+      color:#d580ff;letter-spacing:2px;text-transform:uppercase;
+      margin-bottom:36px;width:fit-content;
+    }
+    .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--purple);box-shadow:0 0 8px var(--purple);animation:pulseDot 1.4s ease-in-out infinite;}
+    @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.3}}
+
+    .left-title{font-family:var(--display);font-size:2.2rem;font-weight:900;line-height:1.15;letter-spacing:1px;margin-bottom:16px;}
+    .left-title .line1{display:block;color:#e8eaf6;}
+    .left-title .line2{display:block;background:linear-gradient(135deg,#aa00ff,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .left-desc{color:var(--sub);font-size:.88rem;line-height:1.7;max-width:420px;margin-bottom:40px;}
+
+    /* Feature list */
+    .feature-list{display:flex;flex-direction:column;gap:14px;margin-bottom:40px;}
+    .feature-item{display:flex;align-items:flex-start;gap:13px;}
+    .fi-icon{
+      width:36px;height:36px;border-radius:10px;
+      background:rgba(170,0,255,.1);border:1px solid rgba(170,0,255,.2);
+      display:flex;align-items:center;justify-content:center;font-size:1rem;
+      flex-shrink:0;
+    }
+    .fi-text{flex:1;}
+    .fi-title{font-weight:700;font-size:.83rem;margin-bottom:2px;}
+    .fi-desc{font-size:.72rem;color:var(--sub);line-height:1.4;}
+
+    /* Steps indicator */
+    .steps-indicator{display:flex;gap:8px;align-items:center;}
+    .si-step{
+      display:flex;align-items:center;gap:6px;font-size:.65rem;
+      font-family:var(--mono);color:var(--dim);
+    }
+    .si-step.active{color:var(--neon);}
+    .si-num{
+      width:22px;height:22px;border-radius:50%;
+      background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+      display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;
+    }
+    .si-step.active .si-num{background:rgba(0,229,255,.15);border-color:rgba(0,229,255,.35);color:var(--neon);}
+    .si-arrow{color:var(--dim);font-size:.8rem;}
+
+    /* ── RIGHT SIDE — Signup form ─────────────────── */
+    .right-side{
+      display:flex;align-items:flex-start;justify-content:center;
+      padding:44px;overflow-y:auto;
+      background:rgba(2,6,14,.7);backdrop-filter:blur(24px);
+    }
+    .form-card{width:100%;padding-top:8px;}
+
+    .form-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;}
+    .form-logo-icon{
+      width:44px;height:44px;border-radius:12px;
+      background:linear-gradient(135deg,rgba(170,0,255,.1),rgba(170,0,255,.25));
+      border:1.5px solid rgba(170,0,255,.3);
+      display:flex;align-items:center;justify-content:center;font-size:1.3rem;
+    }
+    .form-logo-name{font-family:var(--display);font-size:.78rem;font-weight:800;color:var(--neon);letter-spacing:2px;}
+    .form-logo-sub{font-size:.6rem;color:var(--dim);margin-top:1px;}
+
+    .form-heading{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
+    .form-sub{color:var(--sub);font-size:.8rem;margin-bottom:24px;line-height:1.5;}
+
+    /* Flash */
+    .flash{padding:11px 14px;border-radius:9px;font-size:.78rem;margin-bottom:14px;font-weight:500;display:flex;align-items:center;gap:8px;}
+    .flash.error{background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.25);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);color:var(--green);}
+
+    /* Row */
     .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
     .form-group{margin-bottom:14px;position:relative;}
-    label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
-    input{width:100%;padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text);font-family:'Inter',sans-serif;font-size:0.9rem;transition:border-color .2s,box-shadow .2s;outline:none;}
-    input:focus{border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,229,255,0.1);}
-    input::placeholder{color:#4a5568;}
+    label{display:block;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:6px;}
+
+    .field-wrap{position:relative;}
+    .field-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:.9rem;pointer-events:none;}
+    input[type="text"],input[type="email"],input[type="password"]{
+      width:100%;padding:11px 14px 11px 38px;
+      background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);
+      border-radius:10px;color:var(--text);font-family:var(--sans);font-size:.86rem;
+      transition:border-color .2s,box-shadow .2s;outline:none;
+    }
+    input[type="text"].no-icon,input.no-icon{padding-left:14px;}
+    input:focus{border-color:rgba(0,229,255,.5);box-shadow:0 0 0 3px rgba(0,229,255,.08);}
+    input::placeholder{color:#2a3a4a;}
+    input.error-field{border-color:rgba(255,23,68,.4);box-shadow:0 0 0 3px rgba(255,23,68,.06);}
 
     /* Password strength */
-    .strength-bar{height:3px;border-radius:99px;background:rgba(255,255,255,0.07);margin-top:6px;overflow:hidden;}
+    .strength-wrap{margin-top:6px;}
+    .strength-bar{height:3px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden;}
     .strength-fill{height:100%;border-radius:99px;transition:width .3s,background .3s;width:0%;}
-    .strength-label{font-size:0.68rem;color:var(--sub);margin-top:4px;display:flex;justify-content:flex-end;}
+    .strength-row{display:flex;justify-content:space-between;margin-top:4px;font-size:.6rem;color:var(--dim);}
+    .strength-criteria{display:flex;gap:6px;flex-wrap:wrap;}
+    .sc-item{padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);transition:.2s;}
+    .sc-item.met{background:rgba(0,255,136,.08);border-color:rgba(0,255,136,.2);color:var(--green);}
 
-    .pwd-wrap{position:relative;}
-    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--sub);cursor:pointer;font-size:1rem;padding:4px;}
-    .pwd-toggle:hover{color:var(--neon-cyan);}
+    .pwd-wrap-inner{position:relative;}
+    .pwd-toggle{
+      position:absolute;right:12px;top:50%;transform:translateY(-50%);
+      background:none;border:none;color:var(--sub);cursor:pointer;font-size:.9rem;padding:4px;
+    }
+    .pwd-toggle:hover{color:var(--neon);}
 
-    .btn-primary{width:100%;padding:13px;margin-top:6px;background:linear-gradient(135deg,#7c4dff,#aa00ff);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;transition:.2s;letter-spacing:.3px;}
-    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(124,77,255,0.35);}
-    .btn-primary:active{transform:none;}
+    /* Step 2 notice */
+    .step2-notice{
+      background:linear-gradient(135deg,rgba(0,229,255,.04),rgba(0,255,136,.04));
+      border:1px solid rgba(0,229,255,.12);border-radius:11px;padding:14px 16px;
+      font-size:.76rem;color:#8892b0;margin-bottom:20px;line-height:1.6;
+    }
+    .step2-notice strong{color:var(--neon);}
+    .step2-notice .s2-step{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.72rem;}
+    .s2-num{
+      min-width:20px;height:20px;border-radius:50%;background:rgba(0,229,255,.15);
+      border:1px solid rgba(0,229,255,.3);display:flex;align-items:center;justify-content:center;
+      font-size:.58rem;font-weight:700;color:var(--neon);flex-shrink:0;
+    }
 
-    .divider{display:flex;align-items:center;gap:12px;margin:18px 0;}
-    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.08);}
-    .divider span{color:var(--sub);font-size:0.75rem;}
+    /* Submit */
+    .btn-signup{
+      width:100%;padding:13px;margin-top:8px;
+      background:linear-gradient(135deg,#5500bb,var(--purple));
+      border:none;border-radius:11px;color:#fff;
+      font-weight:800;font-size:.9rem;cursor:pointer;transition:.25s;
+      letter-spacing:.5px;font-family:var(--sans);
+      position:relative;overflow:hidden;
+    }
+    .btn-signup::before{
+      content:'';position:absolute;inset:0;
+      background:linear-gradient(135deg,#7c4dff,#dc80ff);opacity:0;transition:.25s;
+    }
+    .btn-signup:hover::before{opacity:1;}
+    .btn-signup:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(170,0,255,.3);}
+    .btn-signup span{position:relative;z-index:1;}
 
-    .terms{font-size:0.75rem;color:var(--sub);text-align:center;margin-top:14px;}
-    .terms a{color:var(--neon-cyan);text-decoration:none;}
-    .footer-link{text-align:center;margin-top:18px;font-size:0.83rem;color:var(--sub);}
-    .footer-link a{color:var(--neon-cyan);text-decoration:none;font-weight:600;}
-    .footer-link a:hover{text-decoration:underline;}
-    .secure-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:18px;font-size:0.72rem;color:#4a5568;}
-    .secure-badge svg{width:13px;height:13px;fill:#4a5568;}
+    .divider{display:flex;align-items:center;gap:12px;margin:16px 0;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06);}
+    .divider span{color:var(--dim);font-size:.7rem;}
+
+    .form-footer{text-align:center;font-size:.78rem;color:var(--sub);margin-top:14px;}
+    .form-footer a{color:var(--neon);text-decoration:none;font-weight:600;}
+    .form-footer a:hover{text-decoration:underline;}
+    .secure-row{display:flex;align-items:center;justify-content:center;gap:5px;margin-top:16px;font-size:.62rem;color:var(--dim);}
+    .secure-row svg{width:11px;height:11px;fill:var(--dim);}
   </style>
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <div class="orb orb1"></div>
-  <div class="orb orb2"></div>
 
-  <div class="card">
-    <div class="logo">
-      <div class="logo-icon">🛡️</div>
-      <div>
-        <div class="logo-text">AI Cyber SOC</div>
-        <div class="logo-sub">Security Operations Center</div>
+<div class="bg-grid"></div>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<div class="layout">
+
+  <!-- ── LEFT ─────────────────────────────────────── -->
+  <div class="left-side">
+    <div class="soc-badge">
+      <span class="badge-dot"></span>
+      SECURE MULTI-TENANT PLATFORM
+    </div>
+
+    <div class="left-title">
+      <span class="line1">JOIN THE</span>
+      <span class="line2">CYBER DEFENSE GRID</span>
+    </div>
+
+    <p class="left-desc">Get your organization's dedicated monitoring dashboard in minutes. Register, link your website, and watch your threat telemetry come alive.</p>
+
+    <div class="feature-list">
+      <div class="feature-item">
+        <div class="fi-icon">🤖</div>
+        <div class="fi-text">
+          <div class="fi-title">AI-Powered Detection</div>
+          <div class="fi-desc">RandomForest ML with 99.2% accuracy — classifies 15+ attack types in real-time</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🔐</div>
+        <div class="fi-text">
+          <div class="fi-title">Zero-Trust Data Isolation</div>
+          <div class="fi-desc">Your organisation's data is completely siloed — no other tenant can access your telemetry</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🌍</div>
+        <div class="fi-text">
+          <div class="fi-title">Global GeoIP Intelligence</div>
+          <div class="fi-desc">Real-time attacker geolocation — country, city, ISP, coordinates on a 3D globe</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">⚡</div>
+        <div class="fi-text">
+          <div class="fi-title">One-Line Embed</div>
+          <div class="fi-desc">Deploy our 5 KB agent on any website with a single &lt;script&gt; tag — no server changes needed</div>
+        </div>
       </div>
     </div>
 
-    <h1>Create account</h1>
-    <div class="subtitle">Join the SOC and start monitoring threats</div>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for cat, msg in messages %}
-        <div class="flash {{ cat }}">{{ msg }}</div>
-      {% endfor %}
-    {% endwith %}
-
-    <form method="POST" action="/auth/signup">
-      <div class="form-row">
-        <div class="form-group">
-          <label>First Name</label>
-          <input type="text" name="first_name" placeholder="Arjun" required/>
-        </div>
-        <div class="form-group">
-          <label>Last Name</label>
-          <input type="text" name="last_name" placeholder="Sharma"/>
-        </div>
+    <!-- Signup flow steps -->
+    <div class="steps-indicator">
+      <div class="si-step active">
+        <div class="si-num">1</div>
+        <span>Register</span>
       </div>
-      <div class="form-group">
-        <label>Email Address</label>
-        <input type="email" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+      <div class="si-arrow">→</div>
+      <div class="si-step">
+        <div class="si-num">2</div>
+        <span>Authorize Site</span>
       </div>
-      <div class="form-group">
-        <label>Password</label>
-        <div class="pwd-wrap">
-          <input type="password" name="password" id="pwdField" placeholder="Min. 8 characters" required oninput="checkStrength(this.value)" autocomplete="new-password"/>
-          <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField')">👁</button>
-        </div>
-        <div class="strength-bar"><div class="strength-fill" id="strengthFill"></div></div>
-        <div class="strength-label"><span id="strengthLabel"></span></div>
+      <div class="si-arrow">→</div>
+      <div class="si-step">
+        <div class="si-num">3</div>
+        <span>Deploy Agent</span>
       </div>
-      <div class="form-group">
-        <label>Confirm Password</label>
-        <div class="pwd-wrap">
-          <input type="password" name="confirm_password" id="pwdField2" placeholder="Repeat password" required autocomplete="new-password"/>
-          <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField2')">👁</button>
-        </div>
+      <div class="si-arrow">→</div>
+      <div class="si-step">
+        <div class="si-num">4</div>
+        <span>Monitor Live</span>
       </div>
-      <button type="submit" class="btn-primary">Create Account →</button>
-    </form>
-
-    <div class="divider"><span>or</span></div>
-
-    <div class="footer-link">Already have an account? <a href="/auth/login">Sign in</a></div>
-
-    <div class="secure-badge">
-      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-      Passwords hashed with bcrypt · Never stored in plain text
     </div>
   </div>
 
-  <script>
-    function togglePwd(id){const f=document.getElementById(id);f.type=f.type==='password'?'text':'password';}
-    function checkStrength(v){
-      const fill=document.getElementById('strengthFill'),lbl=document.getElementById('strengthLabel');
-      let score=0;
-      if(v.length>=8)score++;if(v.length>=12)score++;
-      if(/[A-Z]/.test(v))score++;if(/[0-9]/.test(v))score++;if(/[^A-Za-z0-9]/.test(v))score++;
-      const levels=[
-        {w:'0%',c:'',t:''},
-        {w:'25%',c:'#ff1744',t:'Weak'},
-        {w:'50%',c:'#ff9100',t:'Fair'},
-        {w:'75%',c:'#ffd600',t:'Good'},
-        {w:'100%',c:'#00ff88',t:'Strong'},
-      ];
-      const l=levels[Math.min(score,4)];
-      fill.style.width=l.w;fill.style.background=l.c;lbl.textContent=l.t;lbl.style.color=l.c;
+  <!-- ── RIGHT: Signup form ─────────────────────────── -->
+  <div class="right-side">
+    <div class="form-card">
+      <div class="form-logo">
+        <div class="form-logo-icon">🛡️</div>
+        <div>
+          <div class="form-logo-name">AI CYBER SOC</div>
+          <div class="form-logo-sub">Create your analyst account</div>
+        </div>
+      </div>
+
+      <div class="form-heading">Create account</div>
+      <div class="form-sub">Step 1 of 2 — Register your identity.<br>Site authorization happens after sign-up.</div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="flash {{ cat }}">
+            {% if cat == 'error' %}⚠{% else %}✅{% endif %}
+            {{ msg }}
+          </div>
+        {% endfor %}
+      {% endwith %}
+
+      <div class="step2-notice">
+        <strong>📋 How it works:</strong>
+        <div class="s2-step"><span class="s2-num">1</span><span>Fill in your name, email &amp; password below</span></div>
+        <div class="s2-step"><span class="s2-num">2</span><span>After submit, you'll link your <strong style="color:var(--green);">Site ID + API Key</strong> for authorization</span></div>
+        <div class="s2-step"><span class="s2-num">3</span><span>Embed the agent on your website &amp; go live</span></div>
+      </div>
+
+      <form method="POST" action="/auth/signup" id="signupForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label>First Name</label>
+            <div class="field-wrap">
+              <span class="field-icon">👤</span>
+              <input type="text" name="first_name" placeholder="Arjun" required/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Last Name</label>
+            <div class="field-wrap">
+              <span class="field-icon">👤</span>
+              <input type="text" name="last_name" placeholder="Sharma"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Work Email Address</label>
+          <div class="field-wrap">
+            <span class="field-icon">✉️</span>
+            <input type="email" name="email" id="emailField" placeholder="analyst@gov.in" required autocomplete="email"/>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Password</label>
+          <div class="field-wrap pwd-wrap-inner">
+            <span class="field-icon">🔒</span>
+            <input type="password" name="password" id="pwdField"
+              placeholder="Min. 8 chars, uppercase, number"
+              required oninput="checkStrength(this.value)" autocomplete="new-password"/>
+            <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField','eye1')" id="eye1">👁</button>
+          </div>
+          <div class="strength-wrap">
+            <div class="strength-bar"><div class="strength-fill" id="strengthFill"></div></div>
+            <div class="strength-row">
+              <span id="strengthLabel" style="transition:.2s;"></span>
+              <div class="strength-criteria" id="strengthCrit">
+                <span class="sc-item" id="sc8">8+ chars</span>
+                <span class="sc-item" id="scUP">Uppercase</span>
+                <span class="sc-item" id="scNUM">Number</span>
+                <span class="sc-item" id="scSP">Symbol</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <div class="field-wrap pwd-wrap-inner">
+            <span class="field-icon">🔒</span>
+            <input type="password" name="confirm_password" id="pwdField2"
+              placeholder="Repeat your password"
+              required oninput="checkMatch()" autocomplete="new-password"/>
+            <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField2','eye2')" id="eye2">👁</button>
+          </div>
+          <div id="matchMsg" style="font-size:.65rem;margin-top:5px;display:none;"></div>
+        </div>
+
+        <button type="submit" class="btn-signup">
+          <span>CREATE ACCOUNT & CONTINUE →</span>
+        </button>
+      </form>
+
+      <div class="divider"><span>OR</span></div>
+
+      <div class="form-footer">
+        Already have an account? <a href="/auth/login">Sign in</a>
+      </div>
+
+      <div class="secure-row">
+        <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+        Passwords hashed with bcrypt &nbsp;·&nbsp; Never stored in plain text
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function togglePwd(id, eid) {
+    const f = document.getElementById(id), e = document.getElementById(eid);
+    f.type = f.type === 'password' ? 'text' : 'password';
+    e.textContent = f.type === 'password' ? '👁' : '🙈';
+  }
+
+  function checkStrength(v) {
+    const fill = document.getElementById('strengthFill');
+    const lbl  = document.getElementById('strengthLabel');
+    const c8   = document.getElementById('sc8');
+    const cUP  = document.getElementById('scUP');
+    const cNUM = document.getElementById('scNUM');
+    const cSP  = document.getElementById('scSP');
+
+    const has8  = v.length >= 8;
+    const hasUP = /[A-Z]/.test(v);
+    const hasNUM= /[0-9]/.test(v);
+    const hasSP = /[^A-Za-z0-9]/.test(v);
+
+    c8.classList.toggle('met',  has8);
+    cUP.classList.toggle('met', hasUP);
+    cNUM.classList.toggle('met',hasNUM);
+    cSP.classList.toggle('met', hasSP);
+
+    let score = [has8, hasUP, hasNUM, hasSP, v.length >= 12].filter(Boolean).length;
+    const LEVELS = [
+      {w:'0%',  c:'',        t:''},
+      {w:'20%', c:'#ff1744', t:'Too weak'},
+      {w:'45%', c:'#ff6d00', t:'Fair'},
+      {w:'68%', c:'#ffd600', t:'Good'},
+      {w:'85%', c:'#64dd17', t:'Strong'},
+      {w:'100%',c:'#00ff88', t:'Excellent'},
+    ];
+    const L = LEVELS[Math.min(score, 5)];
+    fill.style.width = L.w; fill.style.background = L.c;
+    lbl.textContent = L.t; lbl.style.color = L.c;
+  }
+
+  function checkMatch() {
+    const p1  = document.getElementById('pwdField').value;
+    const p2  = document.getElementById('pwdField2').value;
+    const msg = document.getElementById('matchMsg');
+    const f2  = document.getElementById('pwdField2');
+    if (!p2) { msg.style.display = 'none'; f2.classList.remove('error-field'); return; }
+    if (p1 === p2) {
+      msg.innerHTML = '<span style="color:#00ff88;">✓ Passwords match</span>';
+      f2.classList.remove('error-field');
+    } else {
+      msg.innerHTML = '<span style="color:#ff5252;">✗ Passwords do not match</span>';
+      f2.classList.add('error-field');
     }
-  </script>
+    msg.style.display = 'block';
+  }
+
+  // Prevent submit if passwords don't match
+  document.getElementById('signupForm').addEventListener('submit', function(e) {
+    const p1 = document.getElementById('pwdField').value;
+    const p2 = document.getElementById('pwdField2').value;
+    if (p1 !== p2) { e.preventDefault(); checkMatch(); }
+  });
+</script>
 </body>
 </html>

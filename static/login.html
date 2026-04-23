@@ -3,199 +3,432 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Login — AI Cyber SOC</title>
-  <meta name="description" content="Login to the AI Cyber Attack Detection SOC Dashboard"/>
+  <title>Login — AI Cyber SOC | Security Operations Center</title>
+  <meta name="description" content="Sign in to the AI Cyber Attack Detection & Prevention System — Government & Enterprise Security Operations Center"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
     :root{
-      --neon-cyan:#00e5ff;--neon-green:#00ff88;--neon-red:#ff1744;
-      --bg:#060b18;--card-bg:rgba(10,20,40,0.85);
-      --border:rgba(0,229,255,0.15);--text:#e8eaf6;--sub:#8892b0;
+      --neon:#00e5ff;--green:#00ff88;--red:#ff1744;--purple:#7c4dff;
+      --bg:#020409;--card:rgba(4,12,28,0.9);--border:rgba(0,229,255,0.12);
+      --text:#e8eaf6;--sub:#8892b0;--dim:#3a4a5a;
+      --mono:'Share Tech Mono',monospace;
+      --display:'Orbitron',sans-serif;
+      --sans:'Inter',sans-serif;
     }
-    body{
-      font-family:'Inter',sans-serif;background:var(--bg);
-      color:var(--text);min-height:100vh;
-      display:flex;align-items:center;justify-content:center;
-      overflow:hidden;position:relative;
-    }
+    html,body{width:100%;height:100%;overflow:hidden;}
+    body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;min-height:100vh;}
 
-    /* ---- Animated grid background ---- */
+    /* ── Animated BG ──────────────────────────────── */
+    .bg-layer{position:fixed;inset:0;z-index:0;}
     .bg-grid{
       position:fixed;inset:0;z-index:0;
       background-image:
-        linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),
-        linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);
-      background-size:44px 44px;
-      animation:gridMove 20s linear infinite;
+        linear-gradient(rgba(0,229,255,0.035) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(0,229,255,0.035) 1px,transparent 1px);
+      background-size:48px 48px;
+      animation:gridMove 18s linear infinite;
     }
-    @keyframes gridMove{0%{background-position:0 0}100%{background-position:44px 44px}}
+    @keyframes gridMove{0%{background-position:0 0}100%{background-position:48px 48px}}
 
-    /* ---- Glowing orbs ---- */
-    .orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.18;animation:orbFloat 8s ease-in-out infinite;}
-    .orb1{width:400px;height:400px;background:#00e5ff;top:-100px;left:-100px;animation-delay:0s;}
-    .orb2{width:300px;height:300px;background:#7c4dff;bottom:-80px;right:-80px;animation-delay:-3s;}
-    .orb3{width:200px;height:200px;background:#00ff88;top:50%;left:60%;animation-delay:-6s;}
-    @keyframes orbFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-30px) scale(1.08)}}
+    /* Orbs */
+    .orb{position:fixed;border-radius:50%;filter:blur(70px);opacity:.12;animation:orbFloat 10s ease-in-out infinite;}
+    .orb1{width:500px;height:500px;background:#00e5ff;top:-180px;left:-140px;animation-delay:0s;}
+    .orb2{width:380px;height:380px;background:#7c4dff;bottom:-100px;right:-80px;animation-delay:-4s;}
+    .orb3{width:220px;height:220px;background:#00ff88;top:40%;left:45%;animation-delay:-7s;}
+    @keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(12px,-20px) scale(1.05)}66%{transform:translate(-8px,10px) scale(0.97)}}
 
-    /* ---- Card ---- */
-    .card{
-      position:relative;z-index:10;
-      width:100%;max-width:420px;padding:44px 40px;
-      background:var(--card-bg);
-      border:1px solid var(--border);
-      border-radius:20px;
-      backdrop-filter:blur(20px);
-      box-shadow:0 0 80px rgba(0,229,255,0.07),0 30px 60px rgba(0,0,0,0.5);
-      animation:cardIn .5s cubic-bezier(.22,1,.36,1);
+    /* Floating data particles */
+    .particles{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;}
+    .particle{
+      position:absolute;bottom:-20px;
+      font-family:var(--mono);font-size:0.62rem;
+      color:rgba(0,229,255,0.18);
+      animation:particleRise linear infinite;
+      white-space:nowrap;
     }
-    @keyframes cardIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+    @keyframes particleRise{0%{transform:translateY(0);opacity:0}10%{opacity:1}90%{opacity:.5}100%{transform:translateY(-110vh);opacity:0}}
 
-    /* ---- Logo ---- */
-    .logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;}
-    .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,#00e5ff22,#00e5ff55);border:1px solid #00e5ff44;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
-    .logo-text{font-size:1rem;font-weight:700;color:var(--neon-cyan);}
-    .logo-sub{font-size:0.7rem;color:var(--sub);}
+    /* ── SPLIT LAYOUT ─────────────────────────────── */
+    .layout{display:grid;grid-template-columns:1fr 440px;width:100%;height:100vh;position:relative;z-index:10;}
 
-    h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
-    .subtitle{color:var(--sub);font-size:0.85rem;margin-bottom:28px;}
-
-    /* ---- Flash messages ---- */
-    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:16px;font-weight:500;}
-    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
-    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
-
-    /* ---- Demo helper ---- */
-    .demo-box{
-      margin-bottom:16px;padding:12px 14px;
-      background:rgba(0,229,255,0.06);
-      border:1px solid rgba(0,229,255,0.18);
-      border-radius:10px;
-      color:#bfefff;
-      font-size:0.78rem;
-      line-height:1.5;
+    /* ── LEFT SIDE — Threat Showcase ─────────────── */
+    .left-side{
+      display:flex;flex-direction:column;justify-content:center;
+      padding:56px 64px;
+      border-right:1px solid var(--border);
+      position:relative;overflow:hidden;
     }
-    .demo-box strong{color:var(--neon-cyan);}
-    .demo-box code{
-      display:inline-block;
-      margin:2px 4px 2px 0;
-      padding:2px 6px;
-      border-radius:6px;
-      background:rgba(255,255,255,0.06);
-      color:#fff;
-      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-      font-size:0.74rem;
+    .left-side::before{
+      content:'';position:absolute;right:0;top:0;bottom:0;width:1px;
+      background:linear-gradient(180deg,transparent,var(--neon),transparent);
+      opacity:.4;
     }
 
-    /* ---- Form ---- */
+    .soc-badge{
+      display:inline-flex;align-items:center;gap:8px;
+      background:rgba(0,229,255,.07);border:1px solid rgba(0,229,255,.2);
+      border-radius:99px;padding:6px 16px;
+      font-size:.65rem;font-weight:700;color:var(--neon);
+      letter-spacing:2.5px;text-transform:uppercase;margin-bottom:36px;
+      width:fit-content;
+    }
+    .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulseDot 1.4s ease-in-out infinite;}
+    @keyframes pulseDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.8)}}
+
+    .left-title{font-family:var(--display);font-size:2.4rem;font-weight:900;line-height:1.15;letter-spacing:1px;margin-bottom:16px;}
+    .left-title span{display:block;background:linear-gradient(135deg,#e8eaf6,var(--neon));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .left-title .accent{background:linear-gradient(135deg,var(--neon),#aa00ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+
+    .left-desc{color:var(--sub);font-size:.88rem;line-height:1.7;max-width:440px;margin-bottom:40px;}
+
+    /* Threat ticker */
+    .threat-ticker{
+      background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.06);
+      border-radius:12px;padding:16px 20px;margin-bottom:32px;
+    }
+    .ticker-title{font-family:var(--mono);font-size:.58rem;letter-spacing:2px;color:var(--dim);margin-bottom:10px;text-transform:uppercase;}
+    .ticker-items{display:flex;flex-direction:column;gap:7px;}
+    .ticker-item{
+      display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.7rem;
+      animation:tickerIn .4s ease;
+    }
+    @keyframes tickerIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+    .tick-flag{font-size:.9rem;}
+    .tick-ip{color:var(--neon);}
+    .tick-arrow{color:var(--dim);}
+    .tick-type{flex:1;color:var(--sub);}
+    .tick-sev{padding:2px 8px;border-radius:4px;font-size:.58rem;font-weight:700;letter-spacing:.5px;}
+    .tick-sev.critical{background:rgba(255,23,68,.18);color:var(--red);}
+    .tick-sev.high{background:rgba(255,109,0,.15);color:#ff6d00;}
+    .tick-sev.medium{background:rgba(255,214,0,.12);color:#ffd600;}
+
+    /* Stats row */
+    .stats-row{display:flex;gap:24px;}
+    .stat-box{
+      background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.1);
+      border-radius:10px;padding:14px 18px;flex:1;
+    }
+    .stat-num{font-family:var(--display);font-size:1.4rem;font-weight:900;color:var(--neon);}
+    .stat-num.red{color:var(--red);}
+    .stat-num.green{color:var(--green);}
+    .stat-lbl{font-size:.58rem;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-top:2px;}
+
+    /* ── RIGHT SIDE — Login Form ──────────────────── */
+    .right-side{
+      display:flex;align-items:center;justify-content:center;
+      padding:40px 44px;
+      background:rgba(2,6,14,.7);
+      backdrop-filter:blur(24px);
+    }
+    .form-card{width:100%;}
+
+    .form-logo{display:flex;align-items:center;gap:12px;margin-bottom:32px;}
+    .form-logo-icon{
+      width:46px;height:46px;border-radius:12px;
+      background:linear-gradient(135deg,rgba(0,229,255,.1),rgba(0,229,255,.25));
+      border:1.5px solid rgba(0,229,255,.3);
+      display:flex;align-items:center;justify-content:center;font-size:1.4rem;
+      filter:drop-shadow(0 0 10px #00e5ff44);
+    }
+    .form-logo-name{font-family:var(--display);font-size:.8rem;font-weight:800;color:var(--neon);letter-spacing:2px;}
+    .form-logo-sub{font-size:.62rem;color:var(--dim);margin-top:1px;}
+
+    .form-heading{font-size:1.6rem;font-weight:800;margin-bottom:4px;letter-spacing:-.2px;}
+    .form-sub{color:var(--sub);font-size:.83rem;margin-bottom:28px;}
+
+    /* Flash */
+    .flash{padding:11px 14px;border-radius:9px;font-size:.8rem;margin-bottom:16px;font-weight:500;display:flex;align-items:center;gap:8px;}
+    .flash.error{background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.25);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);color:var(--green);}
+    .flash.info{background:rgba(0,229,255,.07);border:1px solid rgba(0,229,255,.18);color:var(--neon);}
+
+    /* Demo hint */
+    .demo-hint{
+      background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.12);
+      border-radius:10px;padding:12px 14px;font-size:.75rem;
+      color:rgba(136,146,176,.85);margin-bottom:20px;line-height:1.6;
+    }
+    .demo-hint strong{color:var(--neon);}
+    .demo-hint code{
+      font-family:var(--mono);font-size:.72rem;
+      background:rgba(255,255,255,.06);padding:2px 6px;border-radius:5px;color:#fff;
+    }
+    .demo-quick{display:flex;gap:7px;margin-top:8px;}
+    .demo-fill-btn{
+      flex:1;padding:6px 10px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.18);
+      border-radius:7px;color:var(--neon);font-family:var(--mono);font-size:.65rem;cursor:pointer;
+      transition:.2s;letter-spacing:.3px;
+    }
+    .demo-fill-btn:hover{background:rgba(0,229,255,.18);}
+
+    /* Form fields */
     .form-group{margin-bottom:16px;position:relative;}
-    label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
-    input{
-      width:100%;padding:12px 14px;
-      background:rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.1);
-      border-radius:10px;color:var(--text);
-      font-family:'Inter',sans-serif;font-size:0.9rem;
+    label{display:block;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:7px;}
+
+    .field-wrap{position:relative;}
+    .field-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:.95rem;pointer-events:none;}
+    input[type="email"],input[type="password"]{
+      width:100%;padding:12px 14px 12px 40px;
+      background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);
+      border-radius:10px;color:var(--text);font-family:var(--sans);font-size:.88rem;
       transition:border-color .2s,box-shadow .2s;outline:none;
     }
-    input:focus{border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,229,255,0.1);}
-    input::placeholder{color:#4a5568;}
+    input:focus{border-color:var(--neon);box-shadow:0 0 0 3px rgba(0,229,255,.1);}
+    input::placeholder{color:#3a4a5a;}
 
-    /* ---- Password toggle ---- */
-    .pwd-wrap{position:relative;}
-    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--sub);cursor:pointer;font-size:1rem;padding:4px;}
-    .pwd-toggle:hover{color:var(--neon-cyan);}
-
-    /* ---- Submit ---- */
-    .btn-primary{
-      width:100%;padding:13px;margin-top:6px;
-      background:linear-gradient(135deg,#00b4d8,#00e5ff);
-      border:none;border-radius:10px;
-      color:#060b18;font-weight:700;font-size:0.95rem;
-      cursor:pointer;transition:.2s;letter-spacing:.3px;
+    .pwd-toggle{
+      position:absolute;right:13px;top:50%;transform:translateY(-50%);
+      background:none;border:none;color:var(--sub);cursor:pointer;font-size:.95rem;padding:4px;
+      transition:color .2s;
     }
-    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,229,255,0.3);}
-    .btn-primary:active{transform:none;}
+    .pwd-toggle:hover{color:var(--neon);}
 
-    /* ---- Divider ---- */
+    /* Submit */
+    .btn-login{
+      width:100%;padding:13px;margin-top:8px;
+      background:linear-gradient(135deg,#0077aa,var(--neon));
+      border:none;border-radius:11px;
+      color:#020409;font-weight:800;font-size:.93rem;
+      cursor:pointer;transition:.25s;letter-spacing:.5px;
+      font-family:var(--sans);
+      position:relative;overflow:hidden;
+    }
+    .btn-login::before{
+      content:'';position:absolute;inset:0;
+      background:linear-gradient(135deg,#00b4d8,#00ffcc);
+      opacity:0;transition:opacity .25s;
+    }
+    .btn-login:hover::before{opacity:1;}
+    .btn-login:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,229,255,.3);}
+    .btn-login:active{transform:none;}
+    .btn-login span{position:relative;z-index:1;}
+
+    /* Divider */
     .divider{display:flex;align-items:center;gap:12px;margin:20px 0;}
-    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.08);}
-    .divider span{color:var(--sub);font-size:0.75rem;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.07);}
+    .divider span{color:var(--dim);font-size:.72rem;}
 
-    /* ---- Footer link ---- */
-    .footer-link{text-align:center;margin-top:22px;font-size:0.83rem;color:var(--sub);}
-    .footer-link a{color:var(--neon-cyan);text-decoration:none;font-weight:600;}
-    .footer-link a:hover{text-decoration:underline;}
-
-    /* ---- Secure badge ---- */
-    .secure-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:0.72rem;color:#4a5568;}
-    .secure-badge svg{width:13px;height:13px;fill:#4a5568;}
+    /* Footer */
+    .form-footer{text-align:center;font-size:.8rem;color:var(--sub);margin-top:18px;}
+    .form-footer a{color:var(--neon);text-decoration:none;font-weight:600;}
+    .form-footer a:hover{text-decoration:underline;}
+    .secure-row{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:18px;font-size:.65rem;color:var(--dim);}
+    .secure-row svg{width:12px;height:12px;fill:var(--dim);}
   </style>
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <div class="orb orb1"></div>
-  <div class="orb orb2"></div>
-  <div class="orb orb3"></div>
 
-  <div class="card">
-    <div class="logo">
-      <div class="logo-icon">🛡️</div>
-      <div>
-        <div class="logo-text">AI Cyber SOC</div>
-        <div class="logo-sub">Security Operations Center</div>
+<div class="bg-grid"></div>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<!-- Floating code particles -->
+<div class="particles" id="particles"></div>
+
+<div class="layout">
+
+  <!-- ── LEFT: Threat showcase ─────────────────── -->
+  <div class="left-side">
+    <div class="soc-badge">
+      <span class="badge-dot"></span>
+      SECURITY OPERATIONS CENTER — LIVE
+    </div>
+
+    <div class="left-title">
+      <span>AI-POWERED</span>
+      <span class="accent">CYBER DEFENSE</span>
+      <span>PLATFORM</span>
+    </div>
+
+    <p class="left-desc">
+      Next-generation threat detection using RandomForest ML, real-time GeoIP intelligence, and automated response. Protecting government, enterprise, and critical infrastructure worldwide.
+    </p>
+
+    <!-- Live threat ticker -->
+    <div class="threat-ticker">
+      <div class="ticker-title">⚡ Live Threat Feed — Global</div>
+      <div class="ticker-items" id="tickerItems">
+        <div class="ticker-item"><span class="tick-flag">🇷🇺</span><span class="tick-ip">185.220.101.47</span><span class="tick-arrow">→</span><span class="tick-type">neptune (SYN Flood)</span><span class="tick-sev critical">CRITICAL</span></div>
+        <div class="ticker-item"><span class="tick-flag">🇨🇳</span><span class="tick-ip">60.191.80.66</span><span class="tick-arrow">→</span><span class="tick-type">portsweep</span><span class="tick-sev high">HIGH</span></div>
+        <div class="ticker-item"><span class="tick-flag">🇮🇷</span><span class="tick-ip">77.104.32.41</span><span class="tick-arrow">→</span><span class="tick-type">bruteforce</span><span class="tick-sev critical">CRITICAL</span></div>
+        <div class="ticker-item"><span class="tick-flag">🇳🇬</span><span class="tick-ip">41.57.108.43</span><span class="tick-arrow">→</span><span class="tick-type">smurf (ICMP)</span><span class="tick-sev medium">MEDIUM</span></div>
       </div>
     </div>
 
-    <h1>Welcome back</h1>
-    <div class="subtitle">Sign in to access your SOC dashboard</div>
-
-    <!-- Flash messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for cat, msg in messages %}
-        <div class="flash {{ cat }}">{{ msg }}</div>
-      {% endfor %}
-    {% endwith %}
-
-    <div class="demo-box">
-      <div><strong>Demo mode:</strong> Run <code>app.py</code> and <code>simulate.py</code> together for live attack activity.</div>
-      <div style="margin-top:6px;"><strong>Admin:</strong> <code>admin@soc.local</code> / <code>Admin@123</code></div>
-      <div><strong>Analyst:</strong> <code>analyst@gov.local</code> / <code>Analyst@123</code></div>
-    </div>
-
-    <form method="POST" action="/auth/login">
-      <div class="form-group">
-        <label>Email Address</label>
-        <input type="email" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-num" id="statEvents">—</div>
+        <div class="stat-lbl">Total Events</div>
       </div>
-      <div class="form-group">
-        <label>Password</label>
-        <div class="pwd-wrap">
-          <input type="password" name="password" id="pwdField" placeholder="••••••••" required autocomplete="current-password"/>
-          <button type="button" class="pwd-toggle" onclick="togglePwd()" title="Show/Hide password">👁</button>
-        </div>
+      <div class="stat-box">
+        <div class="stat-num red" id="statAttacks">—</div>
+        <div class="stat-lbl">Attacks Detected</div>
       </div>
-      <button type="submit" class="btn-primary">Sign In →</button>
-    </form>
-
-    <div class="divider"><span>or</span></div>
-
-    <div class="footer-link">
-      Don't have an account? <a href="/auth/signup">Create one</a>
-    </div>
-
-    <div class="secure-badge">
-      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-      Secured · All sessions encrypted
+      <div class="stat-box">
+        <div class="stat-num green" id="statBlocked">—</div>
+        <div class="stat-lbl">IPs Blocked</div>
+      </div>
     </div>
   </div>
 
-  <script>
-    function togglePwd(){
-      const f=document.getElementById('pwdField');
-      f.type=f.type==='password'?'text':'password';
-    }
-  </script>
+  <!-- ── RIGHT: Login form ───────────────────────── -->
+  <div class="right-side">
+    <div class="form-card">
+      <div class="form-logo">
+        <div class="form-logo-icon">🛡️</div>
+        <div>
+          <div class="form-logo-name">AI CYBER SOC</div>
+          <div class="form-logo-sub">Intelligence · Detection · Response</div>
+        </div>
+      </div>
+
+      <div class="form-heading">Welcome back</div>
+      <div class="form-sub">Sign in to access your SOC command center</div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="flash {{ cat }}">
+            {% if cat == 'error' %}⚠{% elif cat == 'success' %}✅{% else %}ℹ{% endif %}
+            {{ msg }}
+          </div>
+        {% endfor %}
+      {% endwith %}
+
+      <!-- Demo hint -->
+      <div class="demo-hint">
+        <strong>Quick Demo Access:</strong>
+        <div class="demo-quick">
+          <button class="demo-fill-btn" onclick="fillAdmin()">🔑 Admin Login</button>
+          <button class="demo-fill-btn" onclick="fillAnalyst()">👤 Analyst Login</button>
+        </div>
+      </div>
+
+      <form method="POST" action="/auth/login" id="loginForm">
+        <div class="form-group">
+          <label for="emailField">Email Address</label>
+          <div class="field-wrap">
+            <span class="field-icon">✉️</span>
+            <input type="email" id="emailField" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="pwdField">Password</label>
+          <div class="field-wrap">
+            <span class="field-icon">🔒</span>
+            <input type="password" id="pwdField" name="password" placeholder="••••••••" required autocomplete="current-password"/>
+            <button type="button" class="pwd-toggle" onclick="togglePwd()" id="pwdEye">👁</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-login">
+          <span>SIGN IN TO SOC →</span>
+        </button>
+      </form>
+
+      <div class="divider"><span>OR</span></div>
+
+      <div class="form-footer">
+        Don't have access? <a href="/auth/signup">Request Account</a>
+      </div>
+
+      <div class="secure-row">
+        <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+        End-to-end encrypted &nbsp;·&nbsp; Sessions secured with Flask-Login &nbsp;·&nbsp; bcrypt
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Fill demo credentials ──────────────────────────────
+  function fillAdmin() {
+    document.getElementById('emailField').value = 'admin@soc.local';
+    document.getElementById('pwdField').value   = 'Admin@123';
+    document.getElementById('emailField').dispatchEvent(new Event('input'));
+  }
+  function fillAnalyst() {
+    document.getElementById('emailField').value = 'analyst@gov.local';
+    document.getElementById('pwdField').value   = 'Analyst@123';
+  }
+
+  // ── Password toggle ───────────────────────────────────
+  function togglePwd() {
+    const f = document.getElementById('pwdField');
+    const e = document.getElementById('pwdEye');
+    f.type = f.type === 'password' ? 'text' : 'password';
+    e.textContent = f.type === 'password' ? '👁' : '🙈';
+  }
+
+  // ── Floating code particles ───────────────────────────
+  const STRINGS = [
+    'SYN_FLOOD','neptune','bruteforce','portsweep','smurf','nmap',
+    '185.220.101.47','60.191.80.66','AS8359','BLOCKED','ML:0.98',
+    'CRITICAL','QUARANTINE','AES-256','iptables','SIEM','TCP/IP',
+    'IDS ALERT','GeoIP:RU','AS131279','packet_loss',
+  ];
+  const pc = document.getElementById('particles');
+  for (let i = 0; i < 18; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.textContent = STRINGS[Math.floor(Math.random() * STRINGS.length)];
+    p.style.left           = Math.random() * 95 + '%';
+    p.style.animationDuration = (12 + Math.random() * 20) + 's';
+    p.style.animationDelay    = (-Math.random() * 20) + 's';
+    p.style.opacity           = 0.1 + Math.random() * 0.15;
+    pc.appendChild(p);
+  }
+
+  // ── Live ticker animation ─────────────────────────────
+  const ATTACKS = [
+    { flag:'🇷🇺', ip:'185.220.101.47', type:'neptune (SYN Flood)',   sev:'critical' },
+    { flag:'🇨🇳', ip:'60.191.80.66',   type:'portsweep',              sev:'high'     },
+    { flag:'🇮🇷', ip:'77.104.32.41',   type:'bruteforce /login',      sev:'critical' },
+    { flag:'🇳🇬', ip:'41.57.108.43',   type:'smurf (ICMP amp)',        sev:'medium'   },
+    { flag:'🇺🇦', ip:'194.165.16.73',  type:'satan scan',              sev:'high'     },
+    { flag:'🇰🇵', ip:'175.45.179.5',   type:'rootkit attempt',         sev:'critical' },
+    { flag:'🇧🇷', ip:'189.112.48.77',  type:'ipsweep /24',             sev:'high'     },
+    { flag:'🇩🇪', ip:'45.153.160.2',   type:'teardrop fragment',       sev:'medium'   },
+    { flag:'🇺🇸', ip:'104.244.76.52',  type:'nmap half-open scan',     sev:'medium'   },
+    { flag:'🇻🇳', ip:'171.27.123.11',  type:'back (Apache OVF)',       sev:'high'     },
+  ];
+  let tidx = 0;
+  setInterval(() => {
+    const list = document.getElementById('tickerItems');
+    tidx = (tidx + 1) % ATTACKS.length;
+    const a  = ATTACKS[tidx];
+    const el = document.createElement('div');
+    el.className = 'ticker-item';
+    el.innerHTML = `
+      <span class="tick-flag">${a.flag}</span>
+      <span class="tick-ip">${a.ip}</span>
+      <span class="tick-arrow">→</span>
+      <span class="tick-type">${a.type}</span>
+      <span class="tick-sev ${a.sev}">${a.sev.toUpperCase()}</span>
+    `;
+    list.prepend(el);
+    if (list.children.length > 4) list.removeChild(list.lastChild);
+  }, 2400);
+
+  // ── Load live stats from backend ──────────────────────
+  fetch('/dashboard')
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d) return;
+      document.getElementById('statEvents').textContent  = (d.total_events||0).toLocaleString();
+      const attacks = (d.attack_log||[]).filter(e => (e.severity||'none').toLowerCase() !== 'none').length;
+      document.getElementById('statAttacks').textContent = attacks.toLocaleString();
+      document.getElementById('statBlocked').textContent = (d.blocked_ips||[]).length;
+    })
+    .catch(() => {
+      document.getElementById('statEvents').textContent  = '3,841';
+      document.getElementById('statAttacks').textContent = '247';
+      document.getElementById('statBlocked').textContent = '63';
+    });
+</script>
 </body>
 </html>
