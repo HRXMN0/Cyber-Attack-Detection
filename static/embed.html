@@ -61,7 +61,7 @@
         <div class="step-num">1</div>
         <div class="step-content">
           <div class="step-title">Choose a site above and copy its API Key</div>
-          <p>Each registered site has a unique <code>site_id</code> and <code>api_key</code> shown above.</p>
+          <p>Admins can see all registered sites. Company users only see their own <code>site_id</code> and <code>api_key</code>.</p>
         </div>
       </div>
       <div class="step">
@@ -87,6 +87,20 @@
     <div class="alert-box">✅ The agent is fully silent — no UI changes on the monitored website, no cookies set, under 5 KB total. Works on any HTML site.</div>
   </div>
 
+  <!-- Mini Dashboard Widget -->
+  <div class="card">
+    <div class="card-title">📊 Mini Dashboard Widget</div>
+    <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">Let your website visitors see real-time security status. Embed this widget on any page:</p>
+    <div class="code-block" id="widgetBlock">
+      <button class="copy-full" onclick="copyWidget()">Copy</button>
+      <span id="widgetCode">Loading…</span>
+    </div>
+    <p style="font-size:.75rem;color:#4a5568;margin-top:10px;">
+      💡 The widget shows: live status (Secure/Under Attack), total events, recent attacks, and blocked IPs.
+      Position options: <code>top-left</code>, <code>top-right</code>, <code>bottom-left</code>, <code>bottom-right</code>
+    </p>
+  </div>
+
   <!-- Test via curl -->
   <div class="card">
     <div class="card-title">🧪 Test via PowerShell / curl</div>
@@ -99,7 +113,6 @@
 
   <script>
     const BASE_URL  = window.location.origin;
-    const ADMIN_KEY = "soc-admin-secret-change-me"; // match SOC_ADMIN_KEY env var
 
     // Fill dynamic code blocks using real deployed URL
     document.getElementById("snippetCode").innerHTML =
@@ -114,16 +127,23 @@
       `  -Method POST -ContentType <span style="color:#ffd600;">"application/json"</span> \`\n` +
       `  -Body <span style="color:#ffd600;">'&#123;"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142",\n  "method":"POST","path":"/admin/login","user_agent":"python-requests/2.28",\n  "referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240&#125;'</span>`;
 
+    // Widget snippet
+    document.getElementById("widgetCode").innerHTML =
+      `<span class="comment">&lt;!-- SOC Security Widget --&gt;\n` +
+      `<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"${BASE_URL}/static/site-widget.js"</span>\n` +
+      `  <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>\n` +
+      `  <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span>\n` +
+      `  <span class="attr">data-position</span>=<span class="val2">"bottom-right"</span><span style="color:#e8eaf6;">&gt;&lt;/script&gt;</span>`;
+
     async function loadSites() {
       try {
-        const res = await fetch("/api/admin/sites", {
-          headers: { "X-Admin-Key": ADMIN_KEY }
-        });
-        if (res.status === 403) {
-          document.getElementById("sitesGrid").innerHTML = '<div style="color:#ff1744">⛔ Admin key invalid. Set SOC_ADMIN_KEY env var.</div>';
+        const res = await fetch("/api/sites?include_credentials=1");
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById("sitesGrid").innerHTML = `<div style="color:#ff1744">${data.error || "Failed to load sites."}</div>`;
           return;
         }
-        const sites = await res.json();
+        const sites = data;
         document.getElementById("siteCount").textContent = sites.length + " sites";
         document.getElementById("sitesGrid").innerHTML = sites.map(s => `
           <div class="site-item">

@@ -1,259 +1,232 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Cyber Attack Detection — SOC Dashboard</title>
-  <meta name="description" content="Real-time AI-powered cybersecurity monitoring dashboard with threat detection, IP blocking, and attack visualization." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Cyber SOC — Command Center</title>
+  <meta name="description" content="Next-generation 3D AI-powered Security Operations Center dashboard with real-time global threat monitoring."/>
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <!-- Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- GSAP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <!-- Styles -->
+  <link rel="stylesheet" href="/static/styles.css"/>
 </head>
 <body>
 
-  <!-- HEADER -->
-  <header class="header">
-    <div class="header-left">
-      <div class="header-logo">🛡️</div>
-      <div>
-        <div class="header-title">AI Cyber Attack Detection System</div>
-        <div class="header-subtitle">Real-Time Threat Monitoring Dashboard</div>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="status-badge" id="statusBadge">
-        <span class="status-dot"></span>
-        <span id="statusText">System Secure</span>
-      </div>
-      <!-- User info -->
-      <div style="display:flex;align-items:center;gap:10px;border-left:1px solid rgba(255,255,255,0.08);padding-left:14px;margin-left:6px;">
-        <div style="text-align:right;">
-          <div style="font-size:0.78rem;font-weight:600;color:#e8eaf6;" id="userNameDisplay">Analyst</div>
-          <div style="font-size:0.65rem;color:#8892b0;" id="userRoleDisplay">analyst</div>
-        </div>
-        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e5ff33,#00e5ff88);border:1.5px solid #00e5ff55;display:flex;align-items:center;justify-content:center;font-size:0.9rem;">👤</div>
-        <a href="/auth/logout" title="Logout" style="background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;border-radius:8px;padding:6px 11px;font-size:0.72rem;font-weight:700;text-decoration:none;transition:.2s;" onmouseover="this.style.background='rgba(255,23,68,0.25)'" onmouseout="this.style.background='rgba(255,23,68,0.12)'">⏻ Logout</a>
-      </div>
-      <button class="theme-toggle" id="themeToggle" title="Toggle theme">☀️</button>
-      <button class="theme-toggle" id="soundToggle" title="Toggle alert sound">🔊</button>
-    </div>
-  </header>
+<!-- Screen-shake overlay -->
+<div id="shakeOverlay" class="shake-overlay"></div>
 
-  <!-- ALERT BANNER -->
-  <div class="alert-banner" id="alertBanner">
-    <span id="alertText">⚠️ High Severity Attack Detected</span>
-    <button class="close-btn" id="alertClose">✕</button>
+<!-- Toast notifications -->
+<div id="toastContainer" class="toast-container"></div>
+
+<!-- HEADER -->
+<header class="soc-header" id="socHeader">
+  <div class="header-brand">
+    <div class="brand-icon">🛡️</div>
+    <div>
+      <div class="brand-title">AI CYBER SOC</div>
+      <div class="brand-sub">SECURITY OPERATIONS CENTER &nbsp;·&nbsp; CLASSIFIED</div>
+    </div>
   </div>
 
-  <!-- TAB NAV -->
-  <nav class="tab-nav">
-    <button class="tab-btn active" data-tab="live">📡 Live Feed</button>
-    <button class="tab-btn" data-tab="sites">🌐 Site Monitor</button>
-    <button class="tab-btn" data-tab="embed">⚙️ Deploy Agent</button>
-  </nav>
-
-  <main class="main">
-
-    <!-- ================================================================
-         TAB 1: LIVE FEED
-         ================================================================ -->
-    <div id="tab-live" class="tab-content active">
-
-      <!-- Stats Cards -->
-      <section class="stats-grid fade-in">
-        <div class="stat-card events">
-          <div class="icon">📡</div>
-          <div class="label">Total Events</div>
-          <div class="value" id="statEvents">0</div>
-          <div class="sub">Monitored requests</div>
-        </div>
-        <div class="stat-card attacks">
-          <div class="icon">⚔️</div>
-          <div class="label">Total Attacks</div>
-          <div class="value" id="statAttacks">0</div>
-          <div class="sub">Non-normal events</div>
-        </div>
-        <div class="stat-card blocked">
-          <div class="icon">🚫</div>
-          <div class="label">Blocked IPs</div>
-          <div class="value" id="statBlocked">0</div>
-          <div class="sub">Auto-blocked addresses</div>
-        </div>
-        <div class="stat-card threat">
-          <div class="icon">🎯</div>
-          <div class="label">Active Threat Level</div>
-          <div class="value" id="statThreat">None</div>
-          <div class="threat-meter">
-            <div class="threat-meter-bar">
-              <div class="threat-meter-fill" id="threatFill" style="width:5%; background:var(--neon-green);"></div>
-            </div>
-            <div class="threat-meter-labels">
-              <span>Safe</span><span>Low</span><span>Medium</span><span>High</span><span>Critical</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Charts Row -->
-      <section class="grid-2 fade-in">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">📊 Attack Type Distribution</div>
-            <span class="panel-badge">Live</span>
-          </div>
-          <div class="chart-container"><canvas id="attackChart"></canvas></div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🎯 Severity Breakdown</div>
-            <span class="panel-badge">Live</span>
-          </div>
-          <div class="chart-container"><canvas id="sevChart"></canvas></div>
-        </div>
-      </section>
-
-      <!-- Traffic + Packet Stream -->
-      <section class="grid-2 fade-in">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">📈 Network Traffic Volume</div>
-            <span class="panel-badge">Live</span>
-          </div>
-          <div class="chart-container" style="height:160px;"><canvas id="trafficChart"></canvas></div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🖧 Live Packet Stream</div>
-            <span class="panel-badge">Raw</span>
-          </div>
-          <div class="packet-stream" id="packetStream"></div>
-        </div>
-      </section>
-
-      <!-- Attack Table + Blocked IPs -->
-      <section class="grid-3 fade-in">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🔴 Live Attack Feed</div>
-            <span class="panel-badge" id="feedBadge">Live</span>
-          </div>
-          <div style="overflow-x:auto; max-height:420px; overflow-y:auto;">
-            <table class="attack-table">
-              <thead>
-                <tr>
-                  <th>Time</th><th>IP Address</th><th>Attack Type</th>
-                  <th>Severity</th><th>Origin · Proto:Port</th><th>Bytes</th><th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="attackTableBody">
-                <tr><td colspan="7" class="empty-state"><div class="icon">📡</div>Awaiting data…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-header"><div class="panel-title">🚫 Blocked IPs</div></div>
-          <div class="blocked-list" id="blockedList">
-            <div class="empty-state"><div class="icon">🛡️</div>No blocked IPs</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Terminal -->
-      <section class="fade-in">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">💻 System Activity Log</div>
-            <span class="panel-badge">Terminal</span>
-          </div>
-          <div class="terminal" id="terminal"></div>
-        </div>
-      </section>
+  <div class="header-center">
+    <div class="attack-status" id="attackStatus">
+      <span class="pulse-ring"></span>
+      <span class="status-icon" id="statusIcon">●</span>
+      <span class="status-label" id="statusLabel">SYSTEM SECURE</span>
     </div>
-
-    <!-- ================================================================
-         TAB 2: SITE MONITOR
-         ================================================================ -->
-    <div id="tab-sites" class="tab-content">
-
-      <!-- Site selector + stats -->
-      <section class="fade-in" style="margin-bottom:24px;">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🌐 Monitored Sites</div>
-            <span class="panel-badge">Live</span>
-          </div>
-          <div class="site-cards" id="siteCards">
-            <div class="empty-state"><div class="icon">🌐</div>Loading sites…</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Per-site attack feed -->
-      <section class="fade-in">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🎯 Site Attack Feed</div>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <select id="siteSelect" class="site-select">
-                <option value="">— Select a site —</option>
-              </select>
-              <span class="panel-badge" id="siteBadge">Waiting</span>
-            </div>
-          </div>
-          <div style="overflow-x:auto; max-height:500px; overflow-y:auto;">
-            <table class="attack-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>IP Address</th>
-                  <th>Attack</th>
-                  <th>Severity</th>
-                  <th>Method · Path</th>
-                  <th>Country / City</th>
-                  <th>ASN</th>
-                  <th>User-Agent</th>
-                  <th>Bytes</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="siteTableBody">
-                <tr><td colspan="10" class="empty-state"><div class="icon">🌐</div>Select a site above</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- Origin details panel -->
-      <section class="grid-2 fade-in" style="margin-top:24px;" id="siteAnalyticsSection">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🗺️ Top Attack Origins</div>
-          </div>
-          <div class="chart-container" style="height:220px;"><canvas id="siteCountryChart"></canvas></div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🔗 Top Targeted Paths</div>
-          </div>
-          <div class="chart-container" style="height:220px;"><canvas id="sitePathChart"></canvas></div>
-        </div>
-      </section>
+    <!-- Live counters -->
+    <div class="quick-stats">
+      <div class="qs-item"><div class="qs-val" id="hdrEvents">0</div><div class="qs-lbl">EVENTS</div></div>
+      <div class="qs-sep"></div>
+      <div class="qs-item"><div class="qs-val" id="hdrAttacks">0</div><div class="qs-lbl">ATTACKS</div></div>
+      <div class="qs-sep"></div>
+      <div class="qs-item"><div class="qs-val danger" id="hdrBlocked">0</div><div class="qs-lbl">BLOCKED</div></div>
     </div>
+  </div>
 
-    <!-- ================================================================
-         TAB 3: DEPLOY AGENT (embedded from /embed)
-         ================================================================ -->
-    <div id="tab-embed" class="tab-content">
-      <div class="embed-wrapper fade-in">
-        <iframe src="/embed" id="embedFrame" title="Deploy Agent"></iframe>
+  <div class="header-right">
+    <div class="threat-bar-wrap">
+      <div class="threat-label">THREAT LEVEL</div>
+      <div class="threat-bar"><div class="threat-fill" id="threatFill"></div></div>
+      <div class="threat-level-text" id="threatText">NONE</div>
+    </div>
+    <div class="user-chip">
+      <div class="user-avatar">👤</div>
+      <div>
+        <div class="user-name" id="userNameDisplay">Analyst</div>
+        <div class="user-role" id="userRoleDisplay">LOADING...</div>
+      </div>
+    </div>
+    <a href="/auth/logout" class="logout-btn" title="Logout">⏻</a>
+    <button class="icon-btn" id="soundBtn" title="Toggle sound">🔊</button>
+  </div>
+</header>
+
+<!-- MAIN GRID -->
+<main class="soc-main">
+
+  <!-- ── LEFT PANEL ────────────────────────────────── -->
+  <aside class="panel panel-left" id="panelLeft">
+
+    <!-- AI Intelligence -->
+    <div class="panel-block">
+      <div class="panel-title"><span class="dot cyan"></span> AI INTELLIGENCE</div>
+      <div class="ai-score-wrap">
+        <div class="ai-score-ring">
+          <svg viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" class="ring-track"/>
+            <circle cx="40" cy="40" r="34" class="ring-fill" id="aiRingFill"/>
+          </svg>
+          <div class="ai-score-inner">
+            <div class="ai-score-val" id="aiScore">0</div>
+            <div class="ai-score-sub">RISK</div>
+          </div>
+        </div>
+        <div class="ai-metrics">
+          <div class="ai-metric"><span class="lbl">Confidence</span><span class="val cyan" id="aiConfidence">—</span></div>
+          <div class="ai-metric"><span class="lbl">Attack Type</span><span class="val red" id="aiAttackType">—</span></div>
+          <div class="ai-metric"><span class="lbl">Risk Level</span><span class="val" id="aiRiskLevel">—</span></div>
+          <div class="ai-metric"><span class="lbl">Response</span><span class="val green" id="aiResponse">MONITOR</span></div>
+        </div>
+      </div>
+      <!-- Thinking animation -->
+      <div class="ai-thinking" id="aiThinking">
+        <div class="think-label">AI ANALYZING</div>
+        <div class="think-dots"><span></span><span></span><span></span><span></span><span></span></div>
       </div>
     </div>
 
-  </main>
+    <!-- Network Graph -->
+    <div class="panel-block" style="flex:1;min-height:200px;">
+      <div class="panel-title"><span class="dot green"></span> NETWORK TOPOLOGY</div>
+      <canvas id="networkCanvas" style="width:100%;height:100%;min-height:200px;"></canvas>
+    </div>
 
-  <script src="/static/script.js"></script>
+    <!-- Auto-Defense -->
+    <div class="panel-block">
+      <div class="panel-title"><span class="dot orange"></span> AUTO-DEFENSE</div>
+      <div class="defense-grid">
+        <div class="defense-item active"><div class="d-icon">🔥</div><div class="d-label">Firewall</div><div class="d-status on">ON</div></div>
+        <div class="defense-item active"><div class="d-icon">🛡️</div><div class="d-label">IDS/IPS</div><div class="d-status on">ON</div></div>
+        <div class="defense-item"><div class="d-icon">🤖</div><div class="d-label">ML Block</div><div class="d-status" id="mlBlockStatus">READY</div></div>
+        <div class="defense-item"><div class="d-icon">🔒</div><div class="d-label">GeoBlock</div><div class="d-status">ARMED</div></div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── CENTER: 3D GLOBE ──────────────────────────── -->
+  <section class="globe-section" id="globeSection">
+    <canvas id="globeCanvas"></canvas>
+
+    <!-- Globe overlays -->
+    <div class="globe-top-bar">
+      <div class="globe-stat"><div class="gs-val" id="globeActiveArcs">0</div><div class="gs-lbl">ACTIVE ARCS</div></div>
+      <div class="globe-stat"><div class="gs-val" id="globeTopAttacker">—</div><div class="gs-lbl">TOP ATTACKER</div></div>
+      <div class="globe-stat"><div class="gs-val" id="globeCountries">0</div><div class="gs-lbl">COUNTRIES</div></div>
+    </div>
+
+    <div class="globe-label">GLOBAL THREAT MAP — LIVE</div>
+
+    <!-- Impact alert overlay -->
+    <div class="impact-alert" id="impactAlert">
+      <div class="impact-icon">💥</div>
+      <div class="impact-text" id="impactText">ATTACK BLOCKED</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="globe-controls">
+      <button class="gc-btn" id="simToggle" onclick="window.SOC && window.SOC.toggleSim()">⏸ PAUSE SIM</button>
+      <div class="intensity-wrap">
+        <span class="gc-lbl">INTENSITY</span>
+        <input type="range" id="intensitySlider" min="1" max="5" value="2" class="intensity-slider"/>
+      </div>
+    </div>
+
+    <!-- Hover tooltip -->
+    <div class="globe-tooltip" id="globeTooltip"></div>
+  </section>
+
+  <!-- ── RIGHT PANEL ───────────────────────────────── -->
+  <aside class="panel panel-right">
+
+    <!-- Live Attack Feed -->
+    <div class="panel-block" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+      <div class="panel-title"><span class="pulse-dot red"></span> LIVE ATTACK FEED</div>
+      <div class="attack-table-wrap">
+        <table class="attack-table">
+          <thead>
+            <tr><th>TIME</th><th>SOURCE IP</th><th>TYPE</th><th>SEV</th><th>ACTION</th></tr>
+          </thead>
+          <tbody id="attackTableBody">
+            <tr><td colspan="5" class="empty-row">Awaiting data…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Blocked IPs -->
+    <div class="panel-block">
+      <div class="panel-title"><span class="dot red"></span> QUARANTINED IPs <span class="count-badge" id="blockedCount">0</span></div>
+      <div class="blocked-list" id="blockedList">
+        <div class="empty-state-sm">No blocked IPs</div>
+      </div>
+    </div>
+
+    <!-- Controls: Manual block -->
+    <div class="panel-block">
+      <div class="panel-title"><span class="dot purple"></span> MANUAL CONTROLS</div>
+      <div class="manual-wrap">
+        <input type="text" id="manualIp" placeholder="Enter IP to block…" class="manual-input"/>
+        <button class="block-btn" onclick="window.SOC && window.SOC.manualBlock()">🔒 BLOCK</button>
+      </div>
+    </div>
+
+  </aside>
+</main>
+
+<!-- BOTTOM BAR -->
+<footer class="soc-bottom">
+
+  <!-- AI Terminal -->
+  <div class="bottom-panel terminal-panel">
+    <div class="panel-title"><span class="dot green"></span> AI COMMAND TERMINAL <span class="blink-cursor">█</span></div>
+    <div class="terminal-body" id="terminalBody"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="bottom-panel charts-panel">
+    <div class="panel-title"><span class="dot cyan"></span> TRAFFIC ANALYTICS</div>
+    <div class="charts-grid">
+      <div class="chart-wrap"><canvas id="trafficChart"></canvas></div>
+      <div class="chart-wrap"><canvas id="sevChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Packet Stream -->
+  <div class="bottom-panel packet-panel">
+    <div class="panel-title"><span class="pulse-dot green"></span> LIVE PACKET STREAM</div>
+    <div class="packet-body" id="packetBody"></div>
+  </div>
+
+</footer>
+
+<!-- Firewall activation overlay -->
+<div class="fw-overlay" id="fwOverlay">
+  <div class="fw-content">
+    <div class="fw-icon">🔒</div>
+    <div class="fw-title">FIREWALL ACTIVATED</div>
+    <div class="fw-msg" id="fwMsg">IP BLOCKED SUCCESSFULLY</div>
+  </div>
+</div>
+
+<script src="/static/script.js"></script>
 </body>
 </html>

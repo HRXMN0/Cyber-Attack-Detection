@@ -13,22 +13,19 @@
 #   GET  /api/agent/logs      → logs filtered by site_id
 # Security model:
 #   - /api/agent/report  → requires valid (site_id + api_key) pair
-#   - /api/agent/logs    → requires valid (site_id + api_key); returns ONLY that site's data
-#   - /api/sites         → public, but api_key is NEVER exposed
-#   - /api/admin/sites   → full listing incl. keys, protected by ADMIN_KEY env var
+#   - /api/agent/logs    → login required; admin sees all, companies see ONLY their own site
+#   - /api/sites         → login required; scoped to the signed-in tenant
+#   - /api/admin/sites   → admin-only full listing including API keys
 # =============================================================================
 
 import os
 import pickle
-import hashlib
-import hmac
 
 import bcrypt
 import pandas as pd
 from flask import (
     Flask, jsonify, request, send_from_directory,
     redirect, url_for, flash, render_template,
-    session, make_response,
 )
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -43,7 +40,8 @@ from database import (
     db_add_history, db_get_history_count,
     db_increment_failed, db_get_failed_count,
     db_get_sites, db_validate_api_key, db_get_logs_by_site,
-    db_create_user, db_get_user_by_email, db_get_user_by_id,
+    db_create_user, db_get_user_by_email, db_get_user_by_id, get_db,
+    db_update_user_site,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,14 +65,22 @@ columns  = _load("columns.pkl")
 print("[APP] Model, encoders, and columns loaded successfully.")
 
 # ---------------------------------------------------------------------------
-# 2. Admin key (set SOC_ADMIN_KEY env var in production)
+# 2. Admin identity
 # ---------------------------------------------------------------------------
-ADMIN_KEY = os.environ.get("SOC_ADMIN_KEY", "soc-admin-secret-change-me")
+ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.environ.get("SOC_ADMIN_EMAILS", os.environ.get("SOC_ADMIN_EMAIL", "")).split(",")
+    if email.strip()
+}
 
-def _check_admin(req) -> bool:
-    """Return True if the request carries a valid admin key."""
-    key = req.headers.get("X-Admin-Key") or req.args.get("admin_key") or ""
-    return hmac.compare_digest(key, ADMIN_KEY)
+
+def _effective_role(user_data: dict) -> str:
+    """Resolve role from the DB row with optional env-based admin override."""
+    role = str(user_data.get("role") or "analyst").lower().strip()
+    email = str(user_data.get("email") or "").lower().strip()
+    if role == "admin" or email in ADMIN_EMAILS:
+        return "admin"
+    return role or "analyst"
 
 # ---------------------------------------------------------------------------
 # 3. Flask app initialisation + Auth
@@ -96,8 +102,8 @@ class User(UserMixin):
         self.id      = data["id"]
         self.name    = data["name"]
         self.email   = data["email"]
-        self.role    = data["role"]
-        self.site_id = data.get("site_id")  # None = admin/SOC (sees everything)
+        self.role    = _effective_role(data)
+        self.site_id = data.get("site_id")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -123,34 +129,46 @@ seed_demo_data()
 # 4. Helper functions
 # ---------------------------------------------------------------------------
 
+def get_client_ip() -> str:
+    """Resolve client IP with optional X-Forwarded-For support for local simulation."""
+    forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip() or (request.remote_addr or "0.0.0.0")
+    return request.remote_addr or "0.0.0.0"
+
+
 def detect_bruteforce(ip: str) -> bool:
     return db_get_failed_count(ip) > 5
+
+
+def is_admin_user() -> bool:
+    return current_user.is_authenticated and str(getattr(current_user, "role", "")).lower() == "admin"
 
 
 def log_attack(ip: str, attack: str, severity: str, **kwargs) -> None:
     db_log_attack(ip, attack, severity, **kwargs)
 
 
-def auto_block(ip: str, severity: str) -> str:
+def auto_block(ip: str, severity: str, site_id: str = "local") -> str:
     if severity == "Critical":
-        db_block_ip(ip, severity)
+        db_block_ip(ip, severity, site_id=site_id)
         return "Permanently blocked"
     elif severity == "High":
-        db_block_ip(ip, severity)
+        db_block_ip(ip, severity, site_id=site_id)
         return "Temporarily blocked (24 h)"
     else:
         return "Monitoring"
 
 
-def is_blocked(ip: str) -> bool:
-    return db_is_blocked(ip)
+def is_blocked(ip: str, site_id: str = "local") -> bool:
+    return db_is_blocked(ip, site_id=site_id)
 
 
-def adaptive_action(ip: str, attack: str, severity: str) -> str:
-    db_add_history(ip, attack)
-    count = db_get_history_count(ip)
+def adaptive_action(ip: str, attack: str, severity: str, site_id: str = "local") -> str:
+    db_add_history(ip, attack, site_id=site_id)
+    count = db_get_history_count(ip, site_id=site_id)
     if count >= 5:
-        db_block_ip(ip, "Critical")
+        db_block_ip(ip, "Critical", site_id=site_id)
         return "Blocked (repeated offender)"
     elif count >= 3:
         return "Alert — repeated attack detected"
@@ -201,6 +219,33 @@ def _country_name(code: str) -> str:
     return _CC_TO_NAME.get((code or "").upper(), code or "Unknown")
 
 
+def serialize_sites_for_response(sites: list[dict], include_credentials: bool = False) -> list[dict]:
+    """Attach per-site metrics while respecting tenant visibility."""
+    result = []
+    with get_db() as conn:
+        for site in sites:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM attack_log WHERE site_id = ?",
+                (site["id"],),
+            ).fetchone()[0]
+            attacks = conn.execute(
+                "SELECT COUNT(*) FROM attack_log WHERE site_id = ? AND severity != 'None'",
+                (site["id"],),
+            ).fetchone()[0]
+            item = {
+                "id":            site["id"],
+                "name":          site["name"],
+                "url":           site["url"],
+                "created_at":    site["created_at"],
+                "total_events":  count,
+                "total_attacks": attacks,
+            }
+            if include_credentials:
+                item["api_key"] = site["api_key"]
+            result.append(item)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # 5. Auth Routes
 # ---------------------------------------------------------------------------
@@ -221,6 +266,10 @@ def auth_login():
             return redirect(url_for("auth_login"))
         user = User(user_data)
         login_user(user, remember=True)
+        # If no site linked yet, go to authorization page
+        if not user.site_id:
+            flash(f"Welcome back, {user.name}! Please complete authorization.", "success")
+            return redirect(url_for("auth_authorize"))
         flash(f"Welcome back, {user.name}! 👋", "success")
         return redirect(url_for("index"))
     return render_template("login.html")
@@ -251,31 +300,51 @@ def auth_signup():
             flash("An account with this email already exists.", "error")
             return redirect(url_for("auth_signup"))
 
-        # Optional: link to a site via site_id + api_key
-        site_id_input = request.form.get("site_id", "").strip().lower()
-        api_key_input = request.form.get("api_key", "").strip()
-        linked_site   = None
-        if site_id_input and api_key_input:
-            if db_validate_api_key(site_id_input, api_key_input):
-                linked_site = site_id_input
-            else:
-                flash("Invalid Site ID or API Key — account not linked to any site.", "error")
-                return redirect(url_for("auth_signup"))
-
+        # Create account without site_id — user will authorize on next page
         pwd_hash = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
-        uid = db_create_user(name, email, pwd_hash, site_id=linked_site)
+        uid = db_create_user(name, email, pwd_hash)  # site_id stays None
         if not uid:
             flash("Could not create account. Please try again.", "error")
             return redirect(url_for("auth_signup"))
 
         user_data = db_get_user_by_id(uid)
         login_user(User(user_data), remember=True)
-        if linked_site:
-            flash(f"Account created and linked to site '{linked_site}'! Welcome, {name}. 🎉", "success")
-        else:
-            flash(f"Account created! Welcome, {name}. 🎉", "success")
-        return redirect(url_for("index"))
+        flash(f"Account created! Welcome, {name}. Now link your organisation.", "success")
+        return redirect(url_for("auth_authorize"))  # Go to authorization step
     return render_template("signup.html")
+
+
+@app.route("/auth/authorize", methods=["GET", "POST"])
+@login_required
+def auth_authorize():
+    """Step 2 after registration: link account to a monitored site via Site ID + API Key."""
+    if current_user.site_id:     # Already authorized
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        site_id_input = request.form.get("site_id", "").strip().lower()
+        api_key_input = request.form.get("api_key",  "").strip()
+        if not site_id_input or not api_key_input:
+            flash("Both Site ID and API Key are required.", "error")
+            return redirect(url_for("auth_authorize"))
+        if not db_validate_api_key(site_id_input, api_key_input):
+            flash("Invalid Site ID or API Key — please check and try again.", "error")
+            return redirect(url_for("auth_authorize"))
+        if db_update_user_site(current_user.id, site_id_input):
+            user_data = db_get_user_by_id(current_user.id)
+            login_user(User(user_data), remember=True)  # reload with updated site_id
+            flash(f"✅ Authorized! Linked to site '{site_id_input}'.", "success")
+            return redirect(url_for("index"))
+        flash("Authorization failed. Please try again.", "error")
+        return redirect(url_for("auth_authorize"))
+    return render_template("authorize.html")
+
+
+@app.route("/auth/skip-authorize")
+@login_required
+def auth_skip_authorize():
+    """SOC Admin skips site authorization — gains access to all sites."""
+    flash("🛡️ SOC Admin mode — you have full access to all monitored sites.", "success")
+    return redirect(url_for("index"))
 
 
 @app.route("/auth/logout")
@@ -291,10 +360,17 @@ def auth_logout():
 # ---------------------------------------------------------------------------
 
 @app.route("/", methods=["GET"])
-@login_required
 def index():
-    """Serve the SOC dashboard UI."""
+    """Serve the SOC dashboard UI for authenticated users, otherwise show login."""
+    if not current_user.is_authenticated:
+        return redirect(url_for("auth_login"))
     return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/favicon.ico", methods=["GET"])
+def favicon():
+    """Serve a favicon to avoid browser 404 noise."""
+    return send_from_directory(STATIC_DIR, "favicon.ico")
 
 
 @app.route("/embed", methods=["GET"])
@@ -314,11 +390,13 @@ def api_status():
 def api_me():
     """Return current logged-in user info for the dashboard header."""
     return jsonify({
-        "id":      current_user.id,
-        "name":    current_user.name,
-        "email":   current_user.email,
-        "role":    current_user.role,
-        "site_id": current_user.site_id,
+        "id":           current_user.id,
+        "name":         current_user.name,
+        "email":        current_user.email,
+        "role":         current_user.role,
+        "site_id":      current_user.site_id,
+        "is_admin":     is_admin_user(),
+        "access_scope": "all-sites" if is_admin_user() else (current_user.site_id or "unassigned"),
     }), 200
 
 
@@ -327,10 +405,10 @@ def api_me():
 
 @app.route("/login", methods=["POST"])
 def login():
-    ip   = request.remote_addr or "0.0.0.0"
+    ip   = get_client_ip()
     data = request.get_json(silent=True) or {}
 
-    if is_blocked(ip):
+    if is_blocked(ip, site_id="local"):
         return jsonify({
             "ip": ip, "attack": "blocked", "severity": "N/A",
             "action": "Request rejected",
@@ -347,7 +425,7 @@ def login():
         attack_type = "bruteforce"
         severity    = get_severity(attack_type)
         response    = get_response(severity)
-        action      = auto_block(ip, severity)
+        action      = auto_block(ip, severity, site_id="local")
         log_attack(ip, attack_type, severity)
         return jsonify({
             "ip": ip, "attack": attack_type, "severity": severity,
@@ -359,8 +437,8 @@ def login():
     attack_type = str(prediction).lower().strip()
     severity    = get_severity(attack_type)
     response    = get_response(severity)
-    adaptive_msg= adaptive_action(ip, attack_type, severity)
-    block_action= auto_block(ip, severity)
+    adaptive_msg= adaptive_action(ip, attack_type, severity, site_id="local")
+    block_action= auto_block(ip, severity, site_id="local")
     action      = block_action if block_action != "Monitoring" else adaptive_msg
 
     log_attack(ip, attack_type, severity)
@@ -377,30 +455,28 @@ def login():
 def dashboard():
     """
     Return dashboard data.
-    - If user has a site_id (org user): return ONLY their site's logs.
-    - If user has no site_id (SOC admin): return ALL logs.
+    - Admin users: return all tenant data.
+    - Company users: return only their linked site data.
     """
-    from database import get_db, db_get_logs_by_site
-    user_site = getattr(current_user, "site_id", None)
-    if user_site:
-        # Org user — show only their site's data
-        logs = db_get_logs_by_site(user_site, limit=500)
-        with get_db() as conn:
-            blocked = db_get_blocked_ips()
-        return jsonify({
-            "total_events": len(logs),
-            "blocked_ips":  blocked,
-            "attack_log":   logs,
-            "site_filter":  user_site,
-        }), 200
-    else:
-        # SOC admin — show everything
+    if is_admin_user():
         return jsonify({
             "total_events": db_get_total_events(),
             "blocked_ips":  db_get_blocked_ips(),
             "attack_log":   db_get_all_logs(),
             "site_filter":  None,
         }), 200
+
+    user_site = getattr(current_user, "site_id", None)
+    if not user_site:
+        return jsonify({"error": "Your account is not linked to any company site."}), 403
+
+    logs = db_get_logs_by_site(user_site, limit=500)
+    return jsonify({
+        "total_events": len(logs),
+        "blocked_ips":  db_get_blocked_ips(site_id=user_site),
+        "attack_log":   logs,
+        "site_filter":  user_site,
+    }), 200
 
 
 # ---- Agent Report (the key new endpoint) ----
@@ -423,7 +499,7 @@ def agent_report():
 
     site_id = data.get("site_id", "unknown")
     api_key = data.get("api_key", "")
-    ip      = data.get("ip") or request.remote_addr or "0.0.0.0"
+    ip      = data.get("ip") or get_client_ip()
 
     # Strict API key validation — no exceptions, no demo bypass
     if not site_id or not api_key:
@@ -441,7 +517,7 @@ def agent_report():
     bytes_in   = int(data.get("bytes_in", 0) or 0)
 
     # --- Blocked IP check ---
-    if is_blocked(ip):
+    if is_blocked(ip, site_id=site_id):
         return jsonify({
             "ip": ip, "attack": "blocked", "severity": "N/A",
             "action": "Request rejected — IP is blocked",
@@ -454,8 +530,8 @@ def agent_report():
     severity    = get_severity(attack_type)
 
     # --- Adaptive & auto-block ---
-    adaptive_msg = adaptive_action(ip, attack_type, severity)
-    block_action = auto_block(ip, severity)
+    adaptive_msg = adaptive_action(ip, attack_type, severity, site_id=site_id)
+    block_action = auto_block(ip, severity, site_id=site_id)
     action       = block_action if block_action != "Monitoring" else adaptive_msg
 
     # --- Log with full metadata ---
@@ -488,57 +564,32 @@ def agent_report():
 @login_required
 def api_sites():
     """
-    Return monitored sites WITHOUT api_key.
-    - Org user: returns ONLY their own site.
-    - Admin (no site_id): returns all sites.
+    Return monitored sites for the logged-in tenant scope.
+    - Company user: returns only their own site.
+    - Admin user: returns all sites.
     """
-    from database import get_db
-    user_site = getattr(current_user, "site_id", None)
+    include_credentials = request.args.get("include_credentials", "").lower() in {"1", "true", "yes"}
     sites = db_get_sites()
-    if user_site:
-        sites = [s for s in sites if s["id"] == user_site]
-    result = []
-    for s in sites:
-        with get_db() as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM attack_log WHERE site_id = ?", (s["id"],)
-            ).fetchone()[0]
-            attacks = conn.execute(
-                "SELECT COUNT(*) FROM attack_log WHERE site_id = ? AND severity != 'None'",
-                (s["id"],)
-            ).fetchone()[0]
-        result.append({
-            "id":           s["id"],
-            "name":         s["name"],
-            "url":          s["url"],
-            "created_at":   s["created_at"],
-            "total_events": count,
-            "total_attacks":attacks,
-        })
-    return jsonify(result), 200
+    if is_admin_user():
+        return jsonify(serialize_sites_for_response(sites, include_credentials=include_credentials)), 200
+
+    user_site = getattr(current_user, "site_id", None)
+    if not user_site:
+        return jsonify({"error": "Your account is not linked to any company site."}), 403
+
+    sites = [site for site in sites if site["id"] == user_site]
+    return jsonify(serialize_sites_for_response(sites, include_credentials=include_credentials)), 200
 
 
 # ---- Admin-only: full site listing with api_keys ----
 
 @app.route("/api/admin/sites", methods=["GET"])
+@login_required
 def api_admin_sites():
-    """Return full site info including api_keys — admin key required."""
-    if not _check_admin(request):
-        return jsonify({"error": "Admin key required (X-Admin-Key header or ?admin_key=)"}), 403
-    from database import get_db
-    sites = db_get_sites()
-    result = []
-    for s in sites:
-        with get_db() as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM attack_log WHERE site_id = ?", (s["id"],)
-            ).fetchone()[0]
-            attacks = conn.execute(
-                "SELECT COUNT(*) FROM attack_log WHERE site_id = ? AND severity != 'None'",
-                (s["id"],)
-            ).fetchone()[0]
-        result.append({**dict(s), "total_events": count, "total_attacks": attacks})
-    return jsonify(result), 200
+    """Admin-only site inventory, including API keys."""
+    if not is_admin_user():
+        return jsonify({"error": "Admin access required"}), 403
+    return jsonify(serialize_sites_for_response(db_get_sites(), include_credentials=True)), 200
 
 
 # ---- Agent logs by site (api_key required — site sees ONLY its own data) ----
@@ -548,30 +599,54 @@ def api_admin_sites():
 def api_agent_logs():
     """
     Return attack logs for a site.
-    - Org user: can ONLY access their own site_id (enforced server-side).
-    - SOC admin: can access any site via X-Admin-Key OR by being logged in with no site_id.
+    - Company users can only access their own linked site.
+    - Admin users can access any site.
     """
     site_id = request.args.get("site_id", "")
     if not site_id:
         return jsonify({"error": "site_id required"}), 400
 
-    user_site = getattr(current_user, "site_id", None)
-
-    # Enforce: org users can only see their own site
-    if user_site and site_id != user_site:
-        return jsonify({"error": "Access denied — you can only access your own site's logs"}), 403
-
-    # SOC admin: also check X-Admin-Key for extra safety if no site_id bound
-    if not user_site and not _check_admin(request):
-        api_key = request.args.get("api_key", "")
-        if not api_key or not db_validate_api_key(site_id, api_key):
-            return jsonify({"error": "api_key or admin key required"}), 401
+    if not is_admin_user():
+        user_site = getattr(current_user, "site_id", None)
+        if not user_site:
+            return jsonify({"error": "Your account is not linked to any company site."}), 403
+        if site_id != user_site:
+            return jsonify({"error": "Access denied — you can only access your own site's logs"}), 403
 
     logs = db_get_logs_by_site(site_id, limit=200)
     return jsonify({
         "site_id":    site_id,
         "total":      len(logs),
         "attack_log": logs,
+    }), 200
+
+
+# ---- Widget API (API key auth — no login required) ----
+
+@app.route("/api/widget/logs", methods=["GET"])
+def api_widget_logs():
+    """
+    Return attack logs for a site using API key authentication.
+    This endpoint is designed for the embeddable widget.
+    Headers required: X-Site-ID, X-API-Key
+    """
+    site_id = request.args.get("site_id") or request.headers.get("X-Site-ID", "")
+    api_key = request.headers.get("X-API-Key", "")
+
+    if not site_id or not api_key:
+        return jsonify({"error": "site_id and api_key are required"}), 400
+
+    if not db_validate_api_key(site_id, api_key):
+        return jsonify({"error": "Invalid site_id or api_key"}), 401
+
+    logs = db_get_logs_by_site(site_id, limit=50)
+    blocked = db_get_blocked_ips(site_id=site_id)
+
+    return jsonify({
+        "site_id":    site_id,
+        "total":      len(logs),
+        "attack_log": logs,
+        "blocked_ips": blocked,
     }), 200
 
 

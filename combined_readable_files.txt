@@ -1,0 +1,4059 @@
+===== FILE: .gitignore ===== 
+# =============================================================================
+# .gitignore — Cyber Attack Detection System
+# =============================================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# ---- NOTE: .pkl model files ARE included (attack_model.pkl ~24 MB, under GitHub's 100 MB limit) ----
+# To regenerate locally: python train_model.py
+
+# ---- Dataset (25 MB+ raw data) ----
+KDDTrain+.txt
+KDDTest+.txt
+dataset/
+
+# ---- Database (runtime data, not source code) ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- Secrets / Environment ----
+.env
+.env.*
+*.key
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.code-workspace
+ 
+===== FILE: app.py ===== 
+# =============================================================================
+# app.py — Flask Web Application
+# AI-Based Cyber Attack Detection and Prevention System
+#
+# Routes:
+#   GET  /                    → SOC dashboard UI
+#   GET  /embed               → Agent embed instructions page
+#   POST /login               → attack detection, ML prediction, blocking logic
+#   GET  /dashboard           → admin view of all attack logs (JSON API)
+#   GET  /api/status          → health check
+#   POST /api/agent/report    → receive telemetry from monitored sites
+#   GET  /api/sites           → list of registered monitored sites
+#   GET  /api/agent/logs      → logs filtered by site_id
+# Security model:
+#   - /api/agent/report  → requires valid (site_id + api_key) pair
+#   - /api/agent/logs    → login required; admin sees all, companies see ONLY their own site
+#   - /api/sites         → login required; scoped to the signed-in tenant
+#   - /api/admin/sites   → admin-only full listing including API keys
+# =============================================================================
+
+import os
+import pickle
+
+import bcrypt
+import pandas as pd
+from flask import (
+    Flask, jsonify, request, send_from_directory,
+    redirect, url_for, flash, render_template,
+    session, make_response,
+)
+from flask_login import (
+    LoginManager, UserMixin, login_user, logout_user,
+    login_required, current_user,
+)
+
+from utils import get_response, get_severity
+from database import (
+    init_db, seed_demo_data,
+    db_log_attack, db_get_all_logs, db_get_total_events,
+    db_block_ip, db_is_blocked, db_get_blocked_ips,
+    db_add_history, db_get_history_count,
+    db_increment_failed, db_get_failed_count,
+    db_get_sites, db_validate_api_key, db_get_logs_by_site,
+    db_create_user, db_get_user_by_email, db_get_user_by_id, get_db,
+)
+
+# ---------------------------------------------------------------------------
+# 1. Load ML artefacts
+# ---------------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _load(filename: str):
+    path = os.path.join(BASE_DIR, filename)
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Artefact '{filename}' not found. Run train_model.py first."
+        )
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+model    = _load("attack_model.pkl")
+encoders = _load("encoders.pkl")
+columns  = _load("columns.pkl")
+
+print("[APP] Model, encoders, and columns loaded successfully.")
+
+# ---------------------------------------------------------------------------
+# 2. Admin identity
+# ---------------------------------------------------------------------------
+ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.environ.get("SOC_ADMIN_EMAILS", os.environ.get("SOC_ADMIN_EMAIL", "")).split(",")
+    if email.strip()
+}
+
+
+def _effective_role(user_data: dict) -> str:
+    """Resolve role from the DB row with optional env-based admin override."""
+    role = str(user_data.get("role") or "analyst").lower().strip()
+    email = str(user_data.get("email") or "").lower().strip()
+    if role == "admin" or email in ADMIN_EMAILS:
+        return "admin"
+    return role or "analyst"
+
+# ---------------------------------------------------------------------------
+# 3. Flask app initialisation + Auth
+# ---------------------------------------------------------------------------
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATE_DIR = os.path.join(BASE_DIR, "static")
+app = Flask(__name__, static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
+app.secret_key = os.environ.get("SECRET_KEY", "soc-super-secret-flask-key-change-in-prod")
+
+# Flask-Login
+login_manager = LoginManager(app)
+login_manager.login_view = "auth_login"
+login_manager.login_message = "Please login to access the SOC dashboard."
+login_manager.login_message_category = "error"
+
+class User(UserMixin):
+    """Lightweight user object for Flask-Login."""
+    def __init__(self, data: dict):
+        self.id      = data["id"]
+        self.name    = data["name"]
+        self.email   = data["email"]
+        self.role    = _effective_role(data)
+        self.site_id = data.get("site_id")
+
+@login_manager.user_loader
+def load_user(user_id):
+    data = db_get_user_by_id(int(user_id))
+    return User(data) if data else None
+
+
+@app.after_request
+def add_cors(response):
+    """Allow cross-origin requests so monitored sites can POST to us."""
+    response.headers["Access-Control-Allow-Origin"]  = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+# ---------------------------------------------------------------------------
+# 3. Initialize database + seed demo data
+# ---------------------------------------------------------------------------
+init_db()
+seed_demo_data()
+
+# ---------------------------------------------------------------------------
+# 4. Helper functions
+# ---------------------------------------------------------------------------
+
+def detect_bruteforce(ip: str) -> bool:
+    return db_get_failed_count(ip) > 5
+
+
+def is_admin_user() -> bool:
+    return current_user.is_authenticated and str(getattr(current_user, "role", "")).lower() == "admin"
+
+
+def log_attack(ip: str, attack: str, severity: str, **kwargs) -> None:
+    db_log_attack(ip, attack, severity, **kwargs)
+
+
+def auto_block(ip: str, severity: str, site_id: str = "local") -> str:
+    if severity == "Critical":
+        db_block_ip(ip, severity, site_id=site_id)
+        return "Permanently blocked"
+    elif severity == "High":
+        db_block_ip(ip, severity, site_id=site_id)
+        return "Temporarily blocked (24 h)"
+    else:
+        return "Monitoring"
+
+
+def is_blocked(ip: str, site_id: str = "local") -> bool:
+    return db_is_blocked(ip, site_id=site_id)
+
+
+def adaptive_action(ip: str, attack: str, severity: str, site_id: str = "local") -> str:
+    db_add_history(ip, attack, site_id=site_id)
+    count = db_get_history_count(ip, site_id=site_id)
+    if count >= 5:
+        db_block_ip(ip, "Critical", site_id=site_id)
+        return "Blocked (repeated offender)"
+    elif count >= 3:
+        return "Alert — repeated attack detected"
+    else:
+        return "Monitoring"
+
+
+def build_feature_row(ip: str, protocol: str = "tcp",
+                      service: str = "http", flag: str = "SF") -> pd.DataFrame:
+    failed = db_get_failed_count(ip)
+    row = {col: 0 for col in columns}
+    row["duration"]          = 0
+    row["src_bytes"]         = 215
+    row["dst_bytes"]         = 45076
+    row["land"]              = 0
+    row["wrong_fragment"]    = 0
+    row["urgent"]            = 0
+    row["hot"]               = 0
+    row["num_failed_logins"] = failed
+    row["logged_in"]         = 0
+    row["count"]             = max(failed, 1)
+    row["srv_count"]         = max(failed, 1)
+    row["same_srv_rate"]     = 1.0
+    row["serror_rate"]       = 0.0
+    row["rerror_rate"]       = min(1.0, failed / 10)
+
+    for col, le in encoders.items():
+        val_map = {"protocol_type": protocol, "service": service, "flag": flag}
+        raw_val = val_map.get(col, "tcp")
+        if raw_val in le.classes_:
+            row[col] = int(le.transform([raw_val])[0])
+        else:
+            row[col] = 0
+
+    return pd.DataFrame([row])[columns]
+
+
+# GeoIP country name lookup (lightweight dict — no external deps)
+_CC_TO_NAME = {
+    "CN": "China", "RU": "Russia", "US": "United States", "BR": "Brazil",
+    "IN": "India", "DE": "Germany", "KP": "North Korea", "IR": "Iran",
+    "UA": "Ukraine", "NG": "Nigeria", "FR": "France", "GB": "United Kingdom",
+    "JP": "Japan", "KR": "South Korea", "PK": "Pakistan", "BD": "Bangladesh",
+    "ID": "Indonesia", "VN": "Vietnam", "TR": "Turkey", "MX": "Mexico",
+}
+
+def _country_name(code: str) -> str:
+    return _CC_TO_NAME.get((code or "").upper(), code or "Unknown")
+
+
+def serialize_sites_for_response(sites: list[dict], include_credentials: bool = False) -> list[dict]:
+    """Attach per-site metrics while respecting tenant visibility."""
+    result = []
+    with get_db() as conn:
+        for site in sites:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM attack_log WHERE site_id = ?",
+                (site["id"],),
+            ).fetchone()[0]
+            attacks = conn.execute(
+                "SELECT COUNT(*) FROM attack_log WHERE site_id = ? AND severity != 'None'",
+                (site["id"],),
+            ).fetchone()[0]
+            item = {
+                "id":            site["id"],
+                "name":          site["name"],
+                "url":           site["url"],
+                "created_at":    site["created_at"],
+                "total_events":  count,
+                "total_attacks": attacks,
+            }
+            if include_credentials:
+                item["api_key"] = site["api_key"]
+            result.append(item)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 5. Auth Routes
+# ---------------------------------------------------------------------------
+
+@app.route("/auth/login", methods=["GET", "POST"])
+def auth_login():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        email    = request.form.get("email", "").lower().strip()
+        password = request.form.get("password", "").encode()
+        user_data = db_get_user_by_email(email)
+        if not user_data or not user_data.get("password_hash"):
+            flash("Invalid email or password.", "error")
+            return redirect(url_for("auth_login"))
+        if not bcrypt.checkpw(password, user_data["password_hash"].encode()):
+            flash("Invalid email or password.", "error")
+            return redirect(url_for("auth_login"))
+        user = User(user_data)
+        login_user(user, remember=True)
+        flash(f"Welcome back, {user.name}! 👋", "success")
+        return redirect(url_for("index"))
+    return render_template("login.html")
+
+
+@app.route("/auth/signup", methods=["GET", "POST"])
+def auth_signup():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        first  = request.form.get("first_name", "").strip()
+        last   = request.form.get("last_name",  "").strip()
+        name   = f"{first} {last}".strip() or first
+        email  = request.form.get("email", "").lower().strip()
+        pwd    = request.form.get("password", "")
+        cpwd   = request.form.get("confirm_password", "")
+
+        if not name or not email or not pwd:
+            flash("All fields are required.", "error")
+            return redirect(url_for("auth_signup"))
+        if len(pwd) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("auth_signup"))
+        if pwd != cpwd:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("auth_signup"))
+        if db_get_user_by_email(email):
+            flash("An account with this email already exists.", "error")
+            return redirect(url_for("auth_signup"))
+
+        # Company users must link to a site. Admin accounts can be granted via env/DB role.
+        site_id_input = request.form.get("site_id", "").strip().lower()
+        api_key_input = request.form.get("api_key", "").strip()
+        linked_site   = None
+        if site_id_input and api_key_input:
+            if db_validate_api_key(site_id_input, api_key_input):
+                linked_site = site_id_input
+            else:
+                flash("Invalid Site ID or API Key — account not linked to any site.", "error")
+                return redirect(url_for("auth_signup"))
+        elif email not in ADMIN_EMAILS:
+            flash("Company users must sign up with a valid Site ID and API Key.", "error")
+            return redirect(url_for("auth_signup"))
+
+        pwd_hash = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
+        role = "admin" if email in ADMIN_EMAILS else "analyst"
+        uid = db_create_user(name, email, pwd_hash, role=role, site_id=linked_site)
+        if not uid:
+            flash("Could not create account. Please try again.", "error")
+            return redirect(url_for("auth_signup"))
+
+        user_data = db_get_user_by_id(uid)
+        login_user(User(user_data), remember=True)
+        if linked_site:
+            flash(f"Account created and linked to site '{linked_site}'! Welcome, {name}. 🎉", "success")
+        else:
+            flash(f"Account created! Welcome, {name}. 🎉", "success")
+        return redirect(url_for("index"))
+    return render_template("signup.html")
+
+
+@app.route("/auth/logout")
+@login_required
+def auth_logout():
+    logout_user()
+    flash("You have been logged out.", "success")
+    return redirect(url_for("auth_login"))
+
+
+# ---------------------------------------------------------------------------
+# 6. Main Routes (protected)
+# ---------------------------------------------------------------------------
+
+@app.route("/", methods=["GET"])
+@login_required
+def index():
+    """Serve the SOC dashboard UI."""
+    return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/embed", methods=["GET"])
+@login_required
+def embed():
+    """Serve the agent embed instructions page."""
+    return send_from_directory(STATIC_DIR, "embed.html")
+
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    return jsonify({"status": "ok", "message": "Website Running Securely"}), 200
+
+
+@app.route("/api/me", methods=["GET"])
+@login_required
+def api_me():
+    """Return current logged-in user info for the dashboard header."""
+    return jsonify({
+        "id":           current_user.id,
+        "name":         current_user.name,
+        "email":        current_user.email,
+        "role":         current_user.role,
+        "site_id":      current_user.site_id,
+        "is_admin":     is_admin_user(),
+        "access_scope": "all-sites" if is_admin_user() else (current_user.site_id or "unassigned"),
+    }), 200
+
+
+
+# ---- Original login endpoint (unchanged) ----
+
+@app.route("/login", methods=["POST"])
+def login():
+    ip   = request.remote_addr or "0.0.0.0"
+    data = request.get_json(silent=True) or {}
+
+    if is_blocked(ip, site_id="local"):
+        return jsonify({
+            "ip": ip, "attack": "blocked", "severity": "N/A",
+            "action": "Request rejected",
+            "message": "Your IP is blocked due to suspicious activity.",
+        }), 403
+
+    username = data.get("username", "")
+    password = data.get("password", "")
+    if not username or not password:
+        db_increment_failed(ip)
+
+    is_brute = detect_bruteforce(ip)
+    if is_brute:
+        attack_type = "bruteforce"
+        severity    = get_severity(attack_type)
+        response    = get_response(severity)
+        action      = auto_block(ip, severity, site_id="local")
+        log_attack(ip, attack_type, severity)
+        return jsonify({
+            "ip": ip, "attack": attack_type, "severity": severity,
+            "action": action, "message": response,
+        }), 403
+
+    feature_df  = build_feature_row(ip)
+    prediction  = model.predict(feature_df)[0]
+    attack_type = str(prediction).lower().strip()
+    severity    = get_severity(attack_type)
+    response    = get_response(severity)
+    adaptive_msg= adaptive_action(ip, attack_type, severity, site_id="local")
+    block_action= auto_block(ip, severity, site_id="local")
+    action      = block_action if block_action != "Monitoring" else adaptive_msg
+
+    log_attack(ip, attack_type, severity)
+    return jsonify({
+        "ip": ip, "attack": attack_type, "severity": severity,
+        "action": action, "message": response,
+    }), 200
+
+
+# ---- Dashboard ----
+
+@app.route("/dashboard", methods=["GET"])
+@login_required
+def dashboard():
+    """
+    Return dashboard data.
+    - Admin users: return all tenant data.
+    - Company users: return only their linked site data.
+    """
+    if is_admin_user():
+        return jsonify({
+            "total_events": db_get_total_events(),
+            "blocked_ips":  db_get_blocked_ips(),
+            "attack_log":   db_get_all_logs(),
+            "site_filter":  None,
+        }), 200
+
+    user_site = getattr(current_user, "site_id", None)
+    if not user_site:
+        return jsonify({"error": "Your account is not linked to any company site."}), 403
+
+    logs = db_get_logs_by_site(user_site, limit=500)
+    return jsonify({
+        "total_events": len(logs),
+        "blocked_ips":  db_get_blocked_ips(site_id=user_site),
+        "attack_log":   logs,
+        "site_filter":  user_site,
+    }), 200
+
+
+# ---- Agent Report (the key new endpoint) ----
+
+@app.route("/api/agent/report", methods=["POST", "OPTIONS"])
+def agent_report():
+    """
+    Receive telemetry from a monitored site's embedded agent.js.
+
+    Expected JSON body:
+        site_id, api_key, ip, method, path, user_agent,
+        referer, bytes_in, country (optional), city (optional), asn (optional)
+
+    Returns the ML prediction result so the site can optionally act on it.
+    """
+    if request.method == "OPTIONS":
+        return "", 204
+
+    data = request.get_json(silent=True) or {}
+
+    site_id = data.get("site_id", "unknown")
+    api_key = data.get("api_key", "")
+    ip      = data.get("ip") or request.remote_addr or "0.0.0.0"
+
+    # Strict API key validation — no exceptions, no demo bypass
+    if not site_id or not api_key:
+        return jsonify({"error": "site_id and api_key are required"}), 400
+    if not db_validate_api_key(site_id, api_key):
+        return jsonify({"error": "Invalid site_id or api_key"}), 401
+
+    method     = data.get("method", "GET")
+    path       = data.get("path", "/")
+    user_agent = data.get("user_agent", "")
+    referer    = data.get("referer", "")
+    country    = data.get("country", "")
+    city       = data.get("city", "")
+    asn        = data.get("asn", "")
+    bytes_in   = int(data.get("bytes_in", 0) or 0)
+
+    # --- Blocked IP check ---
+    if is_blocked(ip, site_id=site_id):
+        return jsonify({
+            "ip": ip, "attack": "blocked", "severity": "N/A",
+            "action": "Request rejected — IP is blocked",
+        }), 403
+
+    # --- ML prediction ---
+    feature_df  = build_feature_row(ip)
+    prediction  = model.predict(feature_df)[0]
+    attack_type = str(prediction).lower().strip()
+    severity    = get_severity(attack_type)
+
+    # --- Adaptive & auto-block ---
+    adaptive_msg = adaptive_action(ip, attack_type, severity, site_id=site_id)
+    block_action = auto_block(ip, severity, site_id=site_id)
+    action       = block_action if block_action != "Monitoring" else adaptive_msg
+
+    # --- Log with full metadata ---
+    log_attack(
+        ip, attack_type, severity,
+        site_id    = site_id,
+        user_agent = user_agent,
+        method     = method,
+        path       = path,
+        referer    = referer,
+        country    = country,
+        city       = city,
+        asn        = asn,
+        bytes_in   = bytes_in,
+    )
+
+    return jsonify({
+        "ip":         ip,
+        "attack":     attack_type,
+        "severity":   severity,
+        "action":     action,
+        "site_id":    site_id,
+        "country":    country or "Unknown",
+    }), 200
+
+
+# ---- Sites registry (public — api_key NEVER exposed) ----
+
+@app.route("/api/sites", methods=["GET"])
+@login_required
+def api_sites():
+    """
+    Return monitored sites for the logged-in tenant scope.
+    - Company user: returns only their own site.
+    - Admin user: returns all sites.
+    """
+    include_credentials = request.args.get("include_credentials", "").lower() in {"1", "true", "yes"}
+    sites = db_get_sites()
+    if is_admin_user():
+        return jsonify(serialize_sites_for_response(sites, include_credentials=include_credentials)), 200
+
+    user_site = getattr(current_user, "site_id", None)
+    if not user_site:
+        return jsonify({"error": "Your account is not linked to any company site."}), 403
+
+    sites = [site for site in sites if site["id"] == user_site]
+    return jsonify(serialize_sites_for_response(sites, include_credentials=include_credentials)), 200
+
+
+# ---- Admin-only: full site listing with api_keys ----
+
+@app.route("/api/admin/sites", methods=["GET"])
+@login_required
+def api_admin_sites():
+    """Admin-only site inventory, including API keys."""
+    if not is_admin_user():
+        return jsonify({"error": "Admin access required"}), 403
+    return jsonify(serialize_sites_for_response(db_get_sites(), include_credentials=True)), 200
+
+
+# ---- Agent logs by site (api_key required — site sees ONLY its own data) ----
+
+@app.route("/api/agent/logs", methods=["GET"])
+@login_required
+def api_agent_logs():
+    """
+    Return attack logs for a site.
+    - Company users can only access their own linked site.
+    - Admin users can access any site.
+    """
+    site_id = request.args.get("site_id", "")
+    if not site_id:
+        return jsonify({"error": "site_id required"}), 400
+
+    if not is_admin_user():
+        user_site = getattr(current_user, "site_id", None)
+        if not user_site:
+            return jsonify({"error": "Your account is not linked to any company site."}), 403
+        if site_id != user_site:
+            return jsonify({"error": "Access denied — you can only access your own site's logs"}), 403
+
+    logs = db_get_logs_by_site(site_id, limit=200)
+    return jsonify({
+        "site_id":    site_id,
+        "total":      len(logs),
+        "attack_log": logs,
+    }), 200
+
+
+# ---- Widget API (API key auth — no login required) ----
+
+@app.route("/api/widget/logs", methods=["GET"])
+def api_widget_logs():
+    """
+    Return attack logs for a site using API key authentication.
+    This endpoint is designed for the embeddable widget.
+    Headers required: X-Site-ID, X-API-Key
+    """
+    site_id = request.args.get("site_id") or request.headers.get("X-Site-ID", "")
+    api_key = request.headers.get("X-API-Key", "")
+
+    if not site_id or not api_key:
+        return jsonify({"error": "site_id and api_key are required"}), 400
+
+    if not db_validate_api_key(site_id, api_key):
+        return jsonify({"error": "Invalid site_id or api_key"}), 401
+
+    logs = db_get_logs_by_site(site_id, limit=50)
+    blocked = db_get_blocked_ips(site_id=site_id)
+
+    return jsonify({
+        "site_id":    site_id,
+        "total":      len(logs),
+        "attack_log": logs,
+        "blocked_ips": blocked,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# 6. Entry-point
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+ 
+===== FILE: database.py ===== 
+# =============================================================================
+# database.py — SQLite Persistence Layer
+# Stores attack logs, blocked IPs, attack history, sites registry
+# =============================================================================
+
+import os
+import sqlite3
+import time
+import secrets
+from datetime import datetime
+from contextlib import contextmanager
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cyber_attacks.db")
+
+
+@contextmanager
+def get_db():
+    """Thread-safe database connection context manager."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db():
+    """Create tables if they don't exist; migrate existing tables if needed."""
+    with get_db() as conn:
+        # Step 1: Core tables (no site_id index yet)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS attack_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip          TEXT NOT NULL,
+                attack      TEXT NOT NULL,
+                severity    TEXT NOT NULL,
+                timestamp   TEXT NOT NULL,
+                created_at  REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE TABLE IF NOT EXISTS blocked_ips (
+                ip          TEXT PRIMARY KEY,
+                reason      TEXT NOT NULL DEFAULT 'auto',
+                block_type  TEXT NOT NULL DEFAULT 'permanent',
+                expires_at  REAL,
+                blocked_at  TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS site_blocked_ips (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip          TEXT NOT NULL,
+                site_id     TEXT NOT NULL DEFAULT 'local',
+                reason      TEXT NOT NULL DEFAULT 'auto',
+                block_type  TEXT NOT NULL DEFAULT 'permanent',
+                expires_at  REAL,
+                blocked_at  TEXT DEFAULT (datetime('now')),
+                UNIQUE(ip, site_id)
+            );
+            CREATE TABLE IF NOT EXISTS attack_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip          TEXT NOT NULL,
+                attack      TEXT NOT NULL,
+                recorded_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS failed_attempts (
+                ip          TEXT PRIMARY KEY,
+                count       INTEGER NOT NULL DEFAULT 0,
+                last_attempt TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS sites (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                url         TEXT NOT NULL,
+                api_key     TEXT NOT NULL UNIQUE,
+                created_at  TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS users (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL,
+                email        TEXT NOT NULL UNIQUE,
+                password_hash TEXT,
+                role         TEXT NOT NULL DEFAULT 'analyst',
+                site_id      TEXT REFERENCES sites(id),
+                created_at   TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_log_ip       ON attack_log(ip);
+            CREATE INDEX IF NOT EXISTS idx_log_severity ON attack_log(severity);
+            CREATE INDEX IF NOT EXISTS idx_history_ip   ON attack_history(ip);
+            CREATE INDEX IF NOT EXISTS idx_site_block_site ON site_blocked_ips(site_id);
+            CREATE INDEX IF NOT EXISTS idx_site_block_ip   ON site_blocked_ips(ip);
+        """)
+
+        # Step 2: Migrate — add new columns if not present
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_log)").fetchall()]
+        for col, col_type, default in [
+            ("site_id",    "TEXT",    "'local'"),
+            ("user_agent", "TEXT",    "NULL"),
+            ("method",     "TEXT",    "NULL"),
+            ("path",       "TEXT",    "NULL"),
+            ("referer",    "TEXT",    "NULL"),
+            ("country",    "TEXT",    "NULL"),
+            ("city",       "TEXT",    "NULL"),
+            ("asn",        "TEXT",    "NULL"),
+            ("bytes_in",   "INTEGER", "0"),
+        ]:
+            if col not in cols:
+                conn.execute(
+                    f"ALTER TABLE attack_log ADD COLUMN {col} {col_type} DEFAULT {default}"
+                )
+
+        # Step 3: Migrate users table — add site_id if missing
+        user_cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "site_id" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN site_id TEXT REFERENCES sites(id)")
+
+        # Step 4: Migrate attack history to be site-aware
+        history_cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_history)").fetchall()]
+        if "site_id" not in history_cols:
+            conn.execute("ALTER TABLE attack_history ADD COLUMN site_id TEXT DEFAULT 'local'")
+            conn.execute(
+                "UPDATE attack_history SET site_id = 'local' WHERE site_id IS NULL OR site_id = ''"
+            )
+
+        # Step 5: Backfill tenant-scoped blocks from the legacy table if needed
+        _migrate_legacy_blocks(conn)
+
+        # Step 6: Now safe to create site_id index
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_log_site ON attack_log(site_id)"
+        )
+
+    print(f"[DB] Database initialized at {DB_PATH}")
+
+
+
+# ---------------------------------------------------------------------------
+# Attack Log
+# ---------------------------------------------------------------------------
+
+def db_log_attack(ip: str, attack: str, severity: str, timestamp: str = None,
+                  site_id: str = "local", user_agent: str = None, method: str = None,
+                  path: str = None, referer: str = None, country: str = None,
+                  city: str = None, asn: str = None, bytes_in: int = 0):
+    """Insert an attack event into the database."""
+    ts = timestamp or (datetime.utcnow().isoformat() + "Z")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO attack_log
+               (ip, attack, severity, timestamp, site_id, user_agent, method, path,
+                referer, country, city, asn, bytes_in)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ip, attack, severity, ts, site_id, user_agent, method, path,
+             referer, country, city, asn, bytes_in),
+        )
+
+
+def db_get_all_logs() -> list[dict]:
+    """Return all attack log entries ordered by id."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT ip, attack, severity, timestamp, site_id,
+                      user_agent, method, path, referer, country, city, asn, bytes_in
+               FROM attack_log ORDER BY id"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def db_get_total_events() -> int:
+    """Return the total number of logged events."""
+    with get_db() as conn:
+        return conn.execute("SELECT COUNT(*) FROM attack_log").fetchone()[0]
+
+
+def db_get_logs_by_site(site_id: str, limit: int = 200) -> list[dict]:
+    """Return attack log entries for a specific monitored site."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT ip, attack, severity, timestamp, site_id,
+                      user_agent, method, path, referer, country, city, asn, bytes_in
+               FROM attack_log WHERE site_id = ?
+               ORDER BY id DESC LIMIT ?""",
+            (site_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Blocked IPs
+# ---------------------------------------------------------------------------
+
+def _migrate_legacy_blocks(conn):
+    """Backfill tenant-aware blocks from the original blocked_ips table."""
+    has_site_blocks = conn.execute("SELECT COUNT(*) FROM site_blocked_ips").fetchone()[0]
+    if has_site_blocks > 0:
+        return
+
+    legacy_rows = conn.execute(
+        "SELECT ip, reason, block_type, expires_at, blocked_at FROM blocked_ips"
+    ).fetchall()
+    for row in legacy_rows:
+        site_rows = conn.execute(
+            "SELECT DISTINCT site_id FROM attack_log WHERE ip = ? AND site_id IS NOT NULL AND site_id != ''",
+            (row["ip"],),
+        ).fetchall()
+        site_ids = [site_row["site_id"] for site_row in site_rows] or ["local"]
+        for site_id in site_ids:
+            conn.execute(
+                """INSERT OR IGNORE INTO site_blocked_ips
+                   (ip, site_id, reason, block_type, expires_at, blocked_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    row["ip"], site_id, row["reason"], row["block_type"],
+                    row["expires_at"], row["blocked_at"],
+                ),
+            )
+
+
+def db_block_ip(ip: str, severity: str, site_id: str = "local"):
+    """Block an IP based on severity."""
+    if severity == "Critical":
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO site_blocked_ips (ip, site_id, reason, block_type, expires_at)
+                   VALUES (?, ?, ?, 'permanent', NULL)
+                   ON CONFLICT(ip, site_id) DO UPDATE SET
+                       reason = excluded.reason,
+                       block_type = 'permanent',
+                       expires_at = NULL,
+                       blocked_at = datetime('now')""",
+                (ip, site_id, f"auto-blocked ({severity})"),
+            )
+    elif severity == "High":
+        expires = time.time() + 86_400
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO site_blocked_ips (ip, site_id, reason, block_type, expires_at)
+                   VALUES (?, ?, ?, 'temporary', ?)
+                   ON CONFLICT(ip, site_id) DO UPDATE SET
+                       reason = excluded.reason,
+                       block_type = 'temporary',
+                       expires_at = excluded.expires_at,
+                       blocked_at = datetime('now')""",
+                (ip, site_id, f"auto-blocked ({severity})", expires),
+            )
+
+
+def db_is_blocked(ip: str, site_id: str = "local") -> bool:
+    """Check if IP is currently blocked; auto-lift expired temp blocks."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT block_type, expires_at FROM site_blocked_ips WHERE ip = ? AND site_id = ?",
+            (ip, site_id),
+        ).fetchone()
+        if row is None:
+            return False
+        if row["block_type"] == "temporary" and row["expires_at"] and time.time() > row["expires_at"]:
+            conn.execute(
+                "DELETE FROM site_blocked_ips WHERE ip = ? AND site_id = ?",
+                (ip, site_id),
+            )
+            return False
+        return True
+
+
+def db_get_blocked_ips(site_id: str = None) -> list[str]:
+    """Return blocked IPs globally or for a single site."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM site_blocked_ips WHERE block_type = 'temporary' AND expires_at < ?",
+            (time.time(),),
+        )
+        if site_id:
+            rows = conn.execute(
+                "SELECT ip FROM site_blocked_ips WHERE site_id = ? ORDER BY blocked_at DESC",
+                (site_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT ip FROM site_blocked_ips ORDER BY ip"
+            ).fetchall()
+    return [r["ip"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Attack History (for adaptive security)
+# ---------------------------------------------------------------------------
+
+def db_add_history(ip: str, attack: str, site_id: str = "local"):
+    """Record an attack in the per-IP history."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO attack_history (ip, attack, site_id) VALUES (?, ?, ?)",
+            (ip, attack, site_id),
+        )
+
+
+def db_get_history_count(ip: str, site_id: str = "local") -> int:
+    """Return how many attacks this IP has triggered for a given site."""
+    with get_db() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM attack_history WHERE ip = ? AND site_id = ?",
+            (ip, site_id),
+        ).fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Failed Attempts (brute-force tracking)
+# ---------------------------------------------------------------------------
+
+def db_increment_failed(ip: str) -> int:
+    """Increment failed login count for an IP; return new count."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO failed_attempts (ip, count) VALUES (?, 1) "
+            "ON CONFLICT(ip) DO UPDATE SET count = count + 1, last_attempt = datetime('now')",
+            (ip,),
+        )
+        row = conn.execute("SELECT count FROM failed_attempts WHERE ip = ?", (ip,)).fetchone()
+        return row["count"]
+
+
+def db_get_failed_count(ip: str) -> int:
+    """Return the current failed login count for an IP."""
+    with get_db() as conn:
+        row = conn.execute("SELECT count FROM failed_attempts WHERE ip = ?", (ip,)).fetchone()
+        return row["count"] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Sites Registry
+# ---------------------------------------------------------------------------
+
+def db_register_site(site_id: str, name: str, url: str) -> str:
+    """Register a new monitored site; return its generated API key."""
+    api_key = secrets.token_hex(24)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO sites (id, name, url, api_key) VALUES (?, ?, ?, ?)",
+            (site_id, name, url, api_key),
+        )
+        row = conn.execute("SELECT api_key FROM sites WHERE id = ?", (site_id,)).fetchone()
+    return row["api_key"]
+
+
+def db_get_sites() -> list[dict]:
+    """Return all registered monitored sites."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT id, name, url, api_key, created_at FROM sites ORDER BY created_at").fetchall()
+    return [dict(r) for r in rows]
+
+
+def db_validate_api_key(site_id: str, api_key: str) -> bool:
+    """Return True if the api_key matches the registered site."""
+    with get_db() as conn:
+        row = conn.execute("SELECT 1 FROM sites WHERE id = ? AND api_key = ?", (site_id, api_key)).fetchone()
+    return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Seed data (only if DB is empty)
+# ---------------------------------------------------------------------------
+
+def seed_demo_data():
+    """Populate the database with realistic demo events if it's empty."""
+    if db_get_total_events() > 0:
+        print("[DB] Database already has data — skipping seed.")
+        # Seed demo sites if missing
+        _seed_demo_sites()
+        return
+
+    import random as rng
+    from datetime import timedelta
+
+    SEED_IPS = [
+        "192.168.1.105", "10.0.0.47", "172.16.8.3", "45.33.32.156",
+        "103.21.244.15", "198.51.100.22", "91.189.88.142", "185.220.101.6",
+        "77.247.181.163", "209.141.55.26", "23.129.64.210", "162.247.74.7",
+        "104.244.76.13", "51.15.43.205", "89.248.167.131", "193.118.53.202",
+        "45.155.205.39", "141.98.11.70", "178.128.23.9", "64.62.197.152",
+    ]
+    SEED_EVENTS = [
+        ("normal", "None"), ("normal", "None"), ("normal", "None"),
+        ("normal", "None"), ("normal", "None"),
+        ("portsweep", "Medium"), ("nmap", "Medium"), ("ipsweep", "Medium"),
+        ("satan", "Medium"), ("neptune", "Critical"), ("neptune", "Critical"),
+        ("smurf", "Critical"), ("back", "High"), ("teardrop", "High"),
+        ("guess_passwd", "High"), ("ftp_write", "High"),
+        ("buffer_overflow", "Critical"), ("rootkit", "Critical"),
+        ("bruteforce", "Critical"), ("warezclient", "Medium"),
+        ("warezmaster", "High"), ("phf", "Medium"), ("normal", "None"),
+        ("pod", "High"), ("land", "High"), ("mscan", "Medium"),
+        ("saint", "Medium"), ("snmpguess", "High"), ("httptunnel", "High"),
+        ("normal", "None"),
+    ]
+
+    SEED_PATHS = ["/", "/login", "/admin", "/api/data", "/wp-admin", "/.env", "/admin/login",
+                  "/static/app.js", "/api/users", "/phpmyadmin"]
+    SEED_UAS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "python-requests/2.28.1", "Nmap/7.93", "sqlmap/1.7", "curl/7.85.0",
+        "Go-http-client/1.1", "Nikto/2.1.6", "masscan/1.3.2",
+    ]
+    SEED_COUNTRIES = ["CN", "RU", "US", "BR", "IR", "KP", "NG", "UA"]
+    SEED_CITIES    = ["Beijing", "Moscow", "New York", "São Paulo", "Tehran", "Pyongyang", "Lagos", "Kyiv"]
+    SEED_ASNS      = ["AS4134", "AS8359", "AS15169", "AS7922", "AS44050", "AS24940"]
+    SEED_METHODS   = ["GET", "GET", "GET", "POST", "POST", "PUT", "DELETE"]
+    SEED_SITES     = ["gov-portal", "finance-dept", "local"]
+
+    now = datetime.utcnow()
+    for i, (atk, sev) in enumerate(SEED_EVENTS):
+        ip      = rng.choice(SEED_IPS)
+        ts      = (now - __import__("datetime").timedelta(seconds=(len(SEED_EVENTS) - i) * 12)).isoformat() + "Z"
+        cidx    = rng.randrange(len(SEED_COUNTRIES))
+        site_id = rng.choice(SEED_SITES)
+        db_log_attack(
+            ip, atk, sev, ts,
+            site_id    = site_id,
+            user_agent = rng.choice(SEED_UAS),
+            method     = rng.choice(SEED_METHODS),
+            path       = rng.choice(SEED_PATHS),
+            referer    = rng.choice(["", "http://evil.ru", "https://pastebin.com", ""]),
+            country    = SEED_COUNTRIES[cidx],
+            city       = SEED_CITIES[cidx],
+            asn        = rng.choice(SEED_ASNS),
+            bytes_in   = rng.randint(64, 65535),
+        )
+        db_add_history(ip, atk, site_id=site_id)
+        if sev in ("Critical", "High"):
+            db_block_ip(ip, sev, site_id=site_id)
+
+    print(f"[DB] Seeded {len(SEED_EVENTS)} demo events.")
+    _seed_demo_sites()
+
+
+def _seed_demo_sites():
+    """Register demo monitoring sites if not already present."""
+    with get_db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
+    if count > 0:
+        return
+    db_register_site("gov-portal",    "Government Portal",    "https://gov.example.in")
+    db_register_site("finance-dept",  "Finance Department",   "https://finance.example.in")
+    db_register_site("local",         "Local SOC Backend",    "http://127.0.0.1:5000")
+    print("[DB] Seeded 3 demo monitored sites.")
+
+
+# ---------------------------------------------------------------------------
+# Users (Authentication)
+# ---------------------------------------------------------------------------
+
+def db_create_user(name: str, email: str, password_hash: str, role: str = "analyst", site_id: str = None) -> int | None:
+    """Create a new user. Returns new user id, or None if email exists."""
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                "INSERT INTO users (name, email, password_hash, role, site_id) VALUES (?, ?, ?, ?, ?)",
+                (name, email, password_hash, role, site_id),
+            )
+            return cursor.lastrowid
+    except Exception:
+        return None
+
+
+def db_get_user_by_email(email: str) -> dict | None:
+    """Fetch user dict by email, or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, password_hash, role, site_id, created_at FROM users WHERE email = ?",
+            (email.lower().strip(),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def db_get_user_by_id(user_id: int) -> dict | None:
+    """Fetch user dict by primary key id, or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, password_hash, role, site_id, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+ 
+===== FILE: README.md ===== 
+# 🛡️ AI Cyber Attack Detection & Monitoring System
+
+Real-time AI-powered cybersecurity SOC dashboard with **deployable monitoring agent** for external websites.
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue) ![Flask](https://img.shields.io/badge/Flask-3.x-black) ![ML](https://img.shields.io/badge/ML-RandomForest-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
+
+---
+
+## 🚀 Features
+
+- **AI Threat Detection** — Random Forest model trained on NSL-KDD dataset (25+ attack types)
+- **Real-time SOC Dashboard** — Live attack feed, charts, packet stream, terminal logs
+- **Deployable Agent** — Embed 2-line `<script>` on any website for instant monitoring
+- **Multi-site Monitor** — Track multiple websites from one dashboard
+- **Auto IP Blocking** — Critical = permanent block, High = 24h temporary
+- **Per-site Data Isolation** — Each site can only access its own logs via API key
+
+---
+
+## 📋 Quick Start
+
+### 1. Clone & Install
+```bash
+git clone https://github.com/YOUR_USERNAME/cyber-attack-detection.git
+cd cyber-attack-detection
+pip install -r requirements.txt
+```
+
+### 2. Train the Model *(one-time, ~2 min)*
+> Download `KDDTrain+.txt` from [NSL-KDD Dataset](https://www.unb.ca/cic/datasets/nsl.html) and place it in the project root.
+```bash
+python train_model.py
+```
+This generates `attack_model.pkl`, `encoders.pkl`, `columns.pkl`.
+
+### 3. Run the Server
+```bash
+# Optional: set admin key (default: soc-admin-secret-change-me)
+set SOC_ADMIN_KEY=your-strong-secret     # Windows
+export SOC_ADMIN_KEY=your-strong-secret  # Linux/Mac
+
+python app.py
+```
+Open **http://127.0.0.1:5000**
+
+---
+
+## 🌐 Deploy Agent on Any Website
+
+1. Go to **Deploy Agent** tab on the dashboard
+2. Copy your site's `site_id` and `api_key`
+3. Paste into your website's `<head>`:
+
+```html
+<script src="https://YOUR-SOC-SERVER/static/agent.js"
+        data-site="your-site-id"
+        data-key="your-api-key"></script>
+```
+
+4. Open **Site Monitor** tab → select your site → real-time monitoring starts
+
+---
+
+## 🔐 Security Model
+
+| Endpoint | Access |
+|----------|--------|
+| `GET /api/sites` | Public — no API keys exposed |
+| `POST /api/agent/report` | Requires valid `site_id + api_key` |
+| `GET /api/agent/logs` | Requires matching `api_key` (site sees own data only) |
+| `GET /api/admin/sites` | Requires `X-Admin-Key` header |
+
+---
+
+## 🗂️ Project Structure
+
+```
+.
+├── app.py              # Flask server + all API endpoints
+├── database.py         # SQLite persistence layer
+├── train_model.py      # Model training script (NSL-KDD)
+├── utils.py            # Severity / response helpers
+├── simulate.py         # Attack simulation script
+├── requirements.txt
+└── static/
+    ├── index.html      # SOC Dashboard UI
+    ├── embed.html      # Deploy Agent instructions
+    ├── agent.js        # Embeddable monitoring snippet
+    ├── script.js       # Dashboard logic
+    └── styles.css      # Dark cyberpunk theme
+```
+
+---
+
+## ⚙️ Requirements
+
+```
+Flask
+pandas
+scikit-learn
+```
+
+---
+
+## 📄 License
+
+MIT — free to use, modify, and deploy.
+ 
+===== FILE: requirements.txt ===== 
+flask>=3.0.0
+scikit-learn>=1.4.0
+pandas>=2.0.0
+numpy>=1.26.0
+requests>=2.31.0
+flask-login>=0.6.3
+bcrypt>=4.1.2
+ 
+===== FILE: server.err.log ===== 
+ 
+===== FILE: server.out.log ===== 
+ 
+===== FILE: simulate.py ===== 
+# =============================================================================
+# simulate.py — Real-Time Attack Simulation Script
+#
+# Sends multiple POST requests to the /login endpoint to simulate:
+#   • Normal login attempts
+#   • Brute-force attacks (> 5 failed attempts from same IP)
+#   • ML-detected intrusion scenarios
+#
+# Run AFTER starting app.py:
+#   python simulate.py
+# =============================================================================
+
+import json
+import time
+import requests
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+BASE_URL   = "http://127.0.0.1:5000"
+LOGIN_URL  = f"{BASE_URL}/login"
+DASH_URL   = f"{BASE_URL}/dashboard"
+
+SEPARATOR  = "=" * 70
+
+
+def pretty(data: dict) -> str:
+    """Return a nicely formatted JSON string."""
+    return json.dumps(data, indent=2)
+
+
+def send_request(label: str, payload: dict, delay: float = 2.0) -> None:
+    """Send a single POST to /login and print the result."""
+    print(f"\n[{label}]")
+    print(f"  Payload : {payload}")
+    try:
+        resp = requests.post(LOGIN_URL, json=payload, timeout=5)
+        print(f"  Status  : {resp.status_code}")
+        print(f"  Response:\n{pretty(resp.json())}")
+    except requests.exceptions.ConnectionError:
+        print("  [ERROR] Cannot connect. Is app.py running?")
+    time.sleep(delay)
+
+
+# ---------------------------------------------------------------------------
+# Simulation scenarios
+# ---------------------------------------------------------------------------
+
+def simulate_normal_login() -> None:
+    """Simulate a successful / valid login attempt."""
+    print(f"\n{SEPARATOR}")
+    print(" SCENARIO 1 — Normal Login Attempt")
+    print(SEPARATOR)
+    send_request(
+        label   = "Normal Login",
+        payload = {"username": "alice", "password": "Str0ng@Pass!"},
+    )
+
+
+def simulate_failed_logins(count: int = 3) -> None:
+    """Simulate a few failed logins (below brute-force threshold)."""
+    print(f"\n{SEPARATOR}")
+    print(f" SCENARIO 2 — {count} Failed Login Attempts (below threshold)")
+    print(SEPARATOR)
+    for i in range(1, count + 1):
+        send_request(
+            label   = f"Failed Login #{i}",
+            payload = {"username": "bob", "password": ""},   # empty pw → failure
+        )
+
+
+def simulate_bruteforce(count: int = 8) -> None:
+    """
+    Simulate a brute-force attack by sending many login attempts
+    with missing credentials, triggering the > 5 failed-attempt rule.
+    """
+    print(f"\n{SEPARATOR}")
+    print(f" SCENARIO 3 — Brute-Force Attack ({count} rapid requests)")
+    print(SEPARATOR)
+    for i in range(1, count + 1):
+        send_request(
+            label   = f"Brute Force #{i}",
+            payload = {"username": "admin", "password": ""},
+        )
+
+
+def simulate_ml_detection() -> None:
+    """
+    Simulate ML-based detection by sending requests that mimic
+    various network traffic patterns.
+    """
+    print(f"\n{SEPARATOR}")
+    print(" SCENARIO 4 — ML-Based Intrusion Detection Simulation")
+    print(SEPARATOR)
+
+    # Each of these represents a different 'attacker' pattern
+    payloads = [
+        {"username": "user1", "password": "pass1", "hint": "port_scan_pattern"},
+        {"username": "user2", "password": "pass2", "hint": "dos_pattern"},
+        {"username": "user3", "password": "pass3", "hint": "r2l_pattern"},
+    ]
+    for p in payloads:
+        send_request(label="ML Prediction", payload=p)
+
+
+def fetch_dashboard() -> None:
+    """Fetch and display the admin dashboard."""
+    print(f"\n{SEPARATOR}")
+    print(" DASHBOARD — All Detected Attacks")
+    print(SEPARATOR)
+    try:
+        resp = requests.get(DASH_URL, timeout=5)
+        data = resp.json()
+        print(f"  Total events : {data.get('total_events', 0)}")
+        print(f"  Blocked IPs  : {data.get('blocked_ips', [])}")
+        print("\n  Attack Log:")
+        for entry in data.get("attack_log", []):
+            print(f"    • {entry}")
+    except requests.exceptions.ConnectionError:
+        print("  [ERROR] Cannot connect. Is app.py running?")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    print("\n" + SEPARATOR)
+    print("  AI Cyber Attack Detection — Simulation Script")
+    print(SEPARATOR)
+
+    time.sleep(0.5)                       # brief pause to ensure server is ready
+
+    simulate_normal_login()               # Scenario 1
+    simulate_failed_logins(count=3)       # Scenario 2
+    simulate_bruteforce(count=8)          # Scenario 3 — triggers brute-force block
+    simulate_ml_detection()               # Scenario 4 — ML predictions
+    fetch_dashboard()                     # Show full attack log
+
+    print(f"\n{SEPARATOR}")
+    print(" Simulation complete.")
+    print(SEPARATOR + "\n")
+ 
+===== FILE: train_model.py ===== 
+# =============================================================================
+# train_model.py — ML Model Training Pipeline
+# Trains a Random Forest Classifier on the NSL-KDD dataset.
+#
+# NSL-KDD Reference:
+#   https://www.unb.ca/cic/datasets/nsl.html
+#   File used: KDDTrain+.txt  (place in the same directory as this script)
+#
+# Outputs:
+#   attack_model.pkl  — trained RandomForestClassifier
+#   encoders.pkl      — dict of LabelEncoders for categorical columns
+#   columns.pkl       — list of feature column names used during training
+# =============================================================================
+
+import os
+import pickle
+import sys
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+
+# ---------------------------------------------------------------------------
+# 1. Column definitions for the NSL-KDD dataset
+# ---------------------------------------------------------------------------
+COL_NAMES = [
+    "duration", "protocol_type", "service", "flag",
+    "src_bytes", "dst_bytes", "land", "wrong_fragment", "urgent",
+    "hot", "num_failed_logins", "logged_in", "num_compromised",
+    "root_shell", "su_attempted", "num_root", "num_file_creations",
+    "num_shells", "num_access_files", "num_outbound_cmds",
+    "is_host_login", "is_guest_login", "count", "srv_count",
+    "serror_rate", "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
+    "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate",
+    "dst_host_count", "dst_host_srv_count", "dst_host_same_srv_rate",
+    "dst_host_diff_srv_rate", "dst_host_same_src_port_rate",
+    "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
+    "dst_host_srv_serror_rate", "dst_host_rerror_rate",
+    "dst_host_srv_rerror_rate", "attack_type", "difficulty_level",
+]
+
+# Categorical feature columns (will be label-encoded)
+CATEGORICAL_COLS = ["protocol_type", "service", "flag"]
+
+# Target column
+TARGET_COL = "attack_type"
+
+# Columns to drop (unused)
+DROP_COLS = ["difficulty_level"]
+
+# ---------------------------------------------------------------------------
+# 2. Load dataset
+# ---------------------------------------------------------------------------
+
+def load_dataset(filepath: str) -> pd.DataFrame:
+    """Load the NSL-KDD training file into a DataFrame."""
+    if not os.path.exists(filepath):
+        print(f"\n[ERROR] Dataset not found at: {filepath}")
+        print("Please download KDDTrain+.txt from:")
+        print("  https://www.unb.ca/cic/datasets/nsl.html")
+        print("and place it in the same directory as train_model.py.\n")
+        sys.exit(1)
+
+    print(f"[INFO] Loading dataset from: {filepath}")
+    df = pd.read_csv(filepath, header=None, names=COL_NAMES)
+    print(f"[INFO] Dataset shape: {df.shape}")
+    return df
+
+
+# ---------------------------------------------------------------------------
+# 3. Preprocess
+# ---------------------------------------------------------------------------
+
+def preprocess(df: pd.DataFrame):
+    """
+    Preprocess the NSL-KDD DataFrame:
+      - Drop unnecessary columns
+      - Label-encode categorical features
+      - Return features (X), labels (y), and encoder dict
+    """
+    # Drop unused columns
+    df = df.drop(columns=DROP_COLS, errors="ignore")
+
+    # Normalise attack labels (strip trailing dot that some variants include)
+    df[TARGET_COL] = df[TARGET_COL].str.lower().str.strip().str.rstrip(".")
+
+    # Encode categorical feature columns
+    encoders = {}
+    for col in CATEGORICAL_COLS:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col].astype(str))
+        encoders[col] = le
+        print(f"[INFO] Encoded column '{col}' — {len(le.classes_)} unique values")
+
+    # Separate features and target
+    X = df.drop(columns=[TARGET_COL])
+    y = df[TARGET_COL]
+
+    print(f"[INFO] Feature matrix shape : {X.shape}")
+    print(f"[INFO] Unique attack classes : {sorted(y.unique())}")
+
+    return X, y, encoders
+
+
+# ---------------------------------------------------------------------------
+# 4. Train model
+# ---------------------------------------------------------------------------
+
+def train(X_train, y_train) -> RandomForestClassifier:
+    """Train a RandomForestClassifier."""
+    print("[INFO] Training Random Forest Classifier …")
+    model = RandomForestClassifier(
+        n_estimators=100,   # number of decision trees
+        max_depth=20,       # prevents over-fitting while keeping accuracy
+        random_state=42,
+        n_jobs=-1,          # use all CPU cores
+    )
+    model.fit(X_train, y_train)
+    print("[INFO] Training complete.")
+    return model
+
+
+# ---------------------------------------------------------------------------
+# 5. Evaluate
+# ---------------------------------------------------------------------------
+
+def evaluate(model, X_test, y_test):
+    """Print accuracy and per-class report."""
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    print(f"\n[RESULT] Accuracy: {acc * 100:.2f}%\n")
+    print("[RESULT] Classification Report:")
+    print(classification_report(y_test, y_pred, zero_division=0))
+    return acc
+
+
+# ---------------------------------------------------------------------------
+# 6. Save artefacts
+# ---------------------------------------------------------------------------
+
+def save_artifacts(model, encoders, columns, out_dir: str = "."):
+    """Persist model, encoders, and column list to disk."""
+    model_path    = os.path.join(out_dir, "attack_model.pkl")
+    encoders_path = os.path.join(out_dir, "encoders.pkl")
+    columns_path  = os.path.join(out_dir, "columns.pkl")
+
+    with open(model_path, "wb") as f:
+        pickle.dump(model, f)
+    print(f"[SAVED] Model      → {model_path}")
+
+    with open(encoders_path, "wb") as f:
+        pickle.dump(encoders, f)
+    print(f"[SAVED] Encoders   → {encoders_path}")
+
+    with open(columns_path, "wb") as f:
+        pickle.dump(list(columns), f)
+    print(f"[SAVED] Columns    → {columns_path}")
+
+
+# ---------------------------------------------------------------------------
+# 7. Main entry-point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    DATASET_FILE = os.path.join(os.path.dirname(__file__), "KDDTrain+.txt")
+
+    # --- Load ---
+    df = load_dataset(DATASET_FILE)
+
+    # --- Preprocess ---
+    X, y, encoders = preprocess(df)
+
+    # --- Split ---
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    print(f"[INFO] Train size: {len(X_train)} | Test size: {len(X_test)}")
+
+    # --- Train ---
+    model = train(X_train, y_train)
+
+    # --- Evaluate ---
+    evaluate(model, X_test, y_test)
+
+    # --- Save ---
+    save_artifacts(model, encoders, X.columns, out_dir=os.path.dirname(__file__) or ".")
+
+    print("\n[DONE] All artefacts saved. Run app.py to start the Flask server.\n") 
+===== FILE: utils.py ===== 
+# =============================================================================
+# utils.py — Intelligence Layer
+# Provides severity classification and mitigation responses for detected attacks
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Severity Mapping
+# ---------------------------------------------------------------------------
+SEVERITY_MAP = {
+    # Normal traffic
+    "normal": "None",
+
+    # DoS attacks
+    "neptune": "Critical",
+    "back": "High",
+    "land": "High",
+    "pod": "High",
+    "smurf": "Critical",
+    "teardrop": "High",
+    "apache2": "High",
+    "udpstorm": "Critical",
+    "processtable": "High",
+    "mailbomb": "High",
+
+    # Probe attacks
+    "ipsweep": "Medium",
+    "nmap": "Medium",
+    "portsweep": "Medium",
+    "satan": "Medium",
+    "mscan": "Medium",
+    "saint": "Medium",
+
+    # R2L (Remote to Local) attacks
+    "ftp_write": "High",
+    "guess_passwd": "High",
+    "imap": "High",
+    "multihop": "High",
+    "phf": "Medium",
+    "spy": "High",
+    "warezclient": "Medium",
+    "warezmaster": "High",
+    "sendmail": "High",
+    "named": "High",
+    "snmpgetattack": "High",
+    "snmpguess": "High",
+    "xlock": "Medium",
+    "xsnoop": "Medium",
+    "worm": "Critical",
+
+    # U2R (User to Root) privilege escalation
+    "buffer_overflow": "Critical",
+    "loadmodule": "Critical",
+    "perl": "High",
+    "rootkit": "Critical",
+    "httptunnel": "High",
+    "ps": "High",
+    "sqlattack": "Critical",
+    "xterm": "High",
+
+    # Brute force (custom)
+    "bruteforce": "Critical",
+
+    # Unknown fallback
+    "unknown": "Medium",
+}
+
+# ---------------------------------------------------------------------------
+# Response / Mitigation Mapping
+# ---------------------------------------------------------------------------
+RESPONSE_MAP = {
+    "None": "No action required — traffic is normal.",
+    "Critical": (
+        "IMMEDIATE ACTION: Permanently block IP, isolate affected systems, "
+        "trigger incident response, alert SOC team, and preserve forensic evidence."
+    ),
+    "High": (
+        "URGENT: Temporarily block IP for 24 hours, increase logging verbosity, "
+        "notify security team, and review firewall rules."
+    ),
+    "Medium": (
+        "WARNING: Monitor IP closely, apply rate limiting, "
+        "flag for manual review by security analyst."
+    ),
+    "Low": "NOTICE: Log the event and continue passive monitoring.",
+}
+
+
+def get_severity(attack_type: str) -> str:
+    """
+    Return the severity level for a given attack type.
+
+    Parameters
+    ----------
+    attack_type : str
+        The predicted attack label (e.g. 'neptune', 'normal', 'bruteforce').
+
+    Returns
+    -------
+    str
+        One of 'None', 'Low', 'Medium', 'High', 'Critical'.
+    """
+    normalized = str(attack_type).lower().strip().rstrip(".")
+    return SEVERITY_MAP.get(normalized, "Medium")
+
+
+def get_response(severity: str) -> str:
+    """
+    Return the recommended mitigation action for a given severity level.
+
+    Parameters
+    ----------
+    severity : str
+        One of 'None', 'Low', 'Medium', 'High', 'Critical'.
+
+    Returns
+    -------
+    str
+        A human-readable mitigation action string.
+    """
+    return RESPONSE_MAP.get(severity, RESPONSE_MAP["Medium"]) 
+===== FILE: static\agent.js ===== 
+// =============================================================================
+// agent.js — Cyber Monitoring Agent Embed Snippet
+// Drop this into any website's <head>:
+//   <script src="https://your-soc-server/static/agent.js"
+//           data-site="gov-portal-001"
+//           data-key="your-api-key"></script>
+//
+// It silently collects request metadata and reports to the SOC backend.
+// No UI changes, no cookies, < 5 KB.
+// =============================================================================
+
+(function () {
+  "use strict";
+
+  // ---- Read config from script tag ----
+  var scriptTag = document.currentScript ||
+    (function () {
+      var tags = document.getElementsByTagName("script");
+      return tags[tags.length - 1];
+    })();
+
+  var SITE_ID  = scriptTag.getAttribute("data-site") || "unknown";
+  var API_KEY  = scriptTag.getAttribute("data-key")  || "";
+  var SOC_URL  = scriptTag.src.replace(/\/static\/agent\.js.*/, "");
+  var ENDPOINT = SOC_URL + "/api/agent/report";
+
+  // ---- Queue ----
+  var eventQueue = [];
+  var sending    = false;
+
+  // ---- Helpers ----
+  function getVisitorIP(cb) {
+    // Use a public API to get the visitor's public IP
+    fetch("https://api.ipify.org?format=json")
+      .then(function (r) { return r.json(); })
+      .then(function (d) { cb(d.ip || "0.0.0.0"); })
+      .catch(function ()  { cb("0.0.0.0"); });
+  }
+
+  function buildPayload(overrides) {
+    return Object.assign({
+      site_id    : SITE_ID,
+      api_key    : API_KEY,
+      ip         : window.__socAgentIP || "0.0.0.0",
+      method     : "GET",
+      path       : window.location.pathname + window.location.search,
+      referer    : document.referrer || "",
+      user_agent : navigator.userAgent,
+      bytes_in   : 0,
+      timestamp  : new Date().toISOString(),
+    }, overrides);
+  }
+
+  function enqueue(payload) {
+    eventQueue.push(payload);
+    if (!sending) flushQueue();
+  }
+
+  function flushQueue() {
+    if (eventQueue.length === 0) { sending = false; return; }
+    sending = true;
+    var payload = eventQueue.shift();
+
+    fetch(ENDPOINT, {
+      method : "POST",
+      headers: { "Content-Type": "application/json" },
+      body   : JSON.stringify(payload),
+      keepalive: true,
+    })
+      .catch(function () { /* fail silently */ })
+      .finally(function () { flushQueue(); });
+  }
+
+  // ---- Intercept fetch ----
+  var _origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    var method = (init && init.method) || "GET";
+    var url    = (typeof input === "string") ? input : (input.url || "");
+    var bytes  = 0;
+    if (init && init.body) {
+      try { bytes = (new TextEncoder().encode(init.body)).length; } catch (_) {}
+    }
+    // Only report same-origin requests
+    if (url.indexOf("http") !== 0 || url.indexOf(window.location.origin) === 0) {
+      enqueue(buildPayload({ method: method.toUpperCase(), path: url, bytes_in: bytes }));
+    }
+    return _origFetch.apply(this, arguments);
+  };
+
+  // ---- Intercept XMLHttpRequest ----
+  var _origOpen = XMLHttpRequest.prototype.open;
+  var _origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this._socMethod = method;
+    this._socUrl    = url;
+    return _origOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    var bytes = 0;
+    if (body) {
+      try { bytes = (typeof body === "string" ? body : JSON.stringify(body)).length; } catch (_) {}
+    }
+    var url = this._socUrl || "";
+    if (!url || url.indexOf("http") !== 0 || url.indexOf(window.location.origin) === 0) {
+      enqueue(buildPayload({
+        method  : (this._socMethod || "GET").toUpperCase(),
+        path    : url || window.location.pathname,
+        bytes_in: bytes,
+      }));
+    }
+    return _origSend.apply(this, arguments);
+  };
+
+  // ---- Page load event ----
+  function reportPageLoad() {
+    enqueue(buildPayload({
+      method  : "GET",
+      path    : window.location.pathname + window.location.search,
+      bytes_in: 0,
+    }));
+  }
+
+  // ---- Form submit events (capture POST-like actions) ----
+  document.addEventListener("submit", function (e) {
+    var form   = e.target;
+    var method = (form.method || "GET").toUpperCase();
+    var action = form.action || window.location.href;
+    var bytes  = 0;
+    try {
+      var fd = new FormData(form);
+      var qs = new URLSearchParams(fd).toString();
+      bytes  = qs.length;
+    } catch (_) {}
+    enqueue(buildPayload({ method: method, path: action, bytes_in: bytes }));
+  }, true);
+
+  // ---- Init: get IP then report page load ----
+  getVisitorIP(function (ip) {
+    window.__socAgentIP = ip;
+    reportPageLoad();
+  });
+
+  // ---- Periodic heartbeat every 30s ----
+  setInterval(function () {
+    enqueue(buildPayload({ method: "HEARTBEAT", path: window.location.pathname }));
+  }, 30000);
+
+})();
+ 
+===== FILE: static\embed.html ===== 
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Deploy Agent — SOC Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Inter',sans-serif;background:#0a0e1a;color:#e8eaf6;min-height:100vh;padding:32px;}
+    h1{font-size:1.6rem;font-weight:800;margin-bottom:6px;color:#00e5ff;}
+    .sub{color:#8892b0;font-size:0.85rem;margin-bottom:32px;}
+    .card{background:rgba(15,22,41,0.8);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px 28px;margin-bottom:24px;}
+    .card-title{font-size:1rem;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+    .sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:6px;}
+    .site-item{background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:16px 18px;}
+    .site-name{font-weight:700;font-size:0.95rem;margin-bottom:2px;}
+    .site-url{font-size:0.72rem;color:#8892b0;font-family:'JetBrains Mono',monospace;margin-bottom:10px;}
+    .site-id-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
+    .label{font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#8892b0;font-weight:600;}
+    .val{font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:#00ff88;word-break:break-all;}
+    .copy-btn{padding:4px 10px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.1);color:#00e5ff;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600;white-space:nowrap;transition:.2s;}
+    .copy-btn:hover{background:rgba(0,229,255,0.2);}
+    .code-block{background:#020509;border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#3bffb8;overflow-x:auto;position:relative;margin-top:6px;}
+    .code-block .comment{color:#4a5568;}
+    .code-block .attr{color:#00e5ff;}
+    .code-block .val2{color:#ffd600;}
+    .copy-full{position:absolute;top:12px;right:12px;padding:5px 12px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.1);color:#00e5ff;border-radius:6px;cursor:pointer;font-size:0.72rem;font-weight:700;}
+    .copy-full:hover{background:rgba(0,229,255,0.2);}
+    .steps{counter-reset:steps;}
+    .step{counter-increment:steps;display:flex;gap:16px;margin-bottom:18px;align-items:flex-start;}
+    .step-num{min-width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e5ff22,#00e5ff44);border:1px solid #00e5ff55;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:#00e5ff;}
+    .step-content p{font-size:0.88rem;color:#8892b0;margin-top:4px;}
+    .step-title{font-weight:700;font-size:0.95rem;}
+    .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:0.68rem;font-weight:700;background:rgba(0,229,255,0.12);color:#00e5ff;margin-left:6px;}
+    .alert-box{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:10px;padding:14px 18px;font-size:0.83rem;color:#00ff88;margin-top:16px;}
+    /* Toast */
+    #copyToast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#00ff88;color:#0a0e1a;padding:10px 24px;border-radius:99px;font-weight:700;font-size:0.85rem;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;}
+    #copyToast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  </style>
+</head>
+<body>
+  <div id="copyToast">✓ Copied!</div>
+  <h1>⚙️ Deploy Monitoring Agent</h1>
+  <div class="sub">Embed a 2-line script tag into any website to start real-time attack monitoring. No setup required.</div>
+
+  <!-- Sites -->
+  <div class="card">
+    <div class="card-title">🌐 Registered Sites <span class="tag" id="siteCount">Loading…</span></div>
+    <div class="sites-grid" id="sitesGrid">
+      <div style="color:#8892b0;font-size:.85rem;">Loading sites…</div>
+    </div>
+  </div>
+
+  <!-- Embed Instructions -->
+  <div class="card">
+    <div class="card-title">📋 How to Deploy</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <div class="step-title">Choose a site above and copy its API Key</div>
+          <p>Admins can see all registered sites. Company users only see their own <code>site_id</code> and <code>api_key</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <div class="step-title">Paste the snippet into your website's &lt;head&gt;</div>
+          <p>Replace <code>YOUR_SITE_ID</code> and <code>YOUR_API_KEY</code> with your values.</p>
+      <!-- Step 2 code block: filled dynamically -->
+          <div class="code-block" id="snippetBlock">
+            <button class="copy-full" onclick="copySnippet()">Copy</button>
+            <span id="snippetCode">Loading…</span>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <div class="step-title">Open the Site Monitor tab on the dashboard</div>
+          <p>Select your site from the dropdown — real-time attack data will appear within seconds.</p>
+        </div>
+      </div>
+    </div>
+    <div class="alert-box">✅ The agent is fully silent — no UI changes on the monitored website, no cookies set, under 5 KB total. Works on any HTML site.</div>
+  </div>
+
+  <!-- Mini Dashboard Widget -->
+  <div class="card">
+    <div class="card-title">📊 Mini Dashboard Widget</div>
+    <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">Let your website visitors see real-time security status. Embed this widget on any page:</p>
+    <div class="code-block" id="widgetBlock">
+      <button class="copy-full" onclick="copyWidget()">Copy</button>
+      <span id="widgetCode">Loading…</span>
+    </div>
+    <p style="font-size:.75rem;color:#4a5568;margin-top:10px;">
+      💡 The widget shows: live status (Secure/Under Attack), total events, recent attacks, and blocked IPs.
+      Position options: <code>top-left</code>, <code>top-right</code>, <code>bottom-left</code>, <code>bottom-right</code>
+    </p>
+  </div>
+
+  <!-- Test via curl -->
+  <div class="card">
+    <div class="card-title">🧪 Test via PowerShell / curl</div>
+    <p style="font-size:.83rem;color:#8892b0;margin-bottom:10px;">You can simulate a monitored site sending attack data manually:</p>
+    <div class="code-block" style="color:#e8eaf6;">
+      <button class="copy-full" onclick="copyCurl()">Copy</button>
+      <span id="curlCode">Loading…</span>
+    </div>
+  </div>
+
+  <script>
+    const BASE_URL  = window.location.origin;
+
+    // Fill dynamic code blocks using real deployed URL
+    document.getElementById("snippetCode").innerHTML =
+      `<span class="comment">&lt;!-- SOC Monitoring Agent --&gt;</span>\n` +
+      `<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"${BASE_URL}/static/agent.js"</span>\n` +
+      `        <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>\n` +
+      `        <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span><span style="color:#e8eaf6;">&gt;&lt;\/script&gt;</span>`;
+
+    document.getElementById("curlCode").innerHTML =
+      `<span style="color:#8892b0;"># PowerShell</span>\n` +
+      `Invoke-RestMethod -Uri <span style="color:#ffd600;">"${BASE_URL}/api/agent/report"</span> \`\n` +
+      `  -Method POST -ContentType <span style="color:#ffd600;">"application/json"</span> \`\n` +
+      `  -Body <span style="color:#ffd600;">'&#123;"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142",\n  "method":"POST","path":"/admin/login","user_agent":"python-requests/2.28",\n  "referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240&#125;'</span>`;
+
+    // Widget snippet
+    document.getElementById("widgetCode").innerHTML =
+      `<span class="comment">&lt;!-- SOC Security Widget --&gt;\n` +
+      `<span style="color:#e8eaf6;">&lt;script</span> <span class="attr">src</span>=<span class="val2">"${BASE_URL}/static/site-widget.js"</span>\n` +
+      `  <span class="attr">data-site</span>=<span class="val2">"YOUR_SITE_ID"</span>\n` +
+      `  <span class="attr">data-key</span>=<span class="val2">"YOUR_API_KEY"</span>\n` +
+      `  <span class="attr">data-position</span>=<span class="val2">"bottom-right"</span><span style="color:#e8eaf6;">&gt;&lt;/script&gt;</span>`;
+
+    async function loadSites() {
+      try {
+        const res = await fetch("/api/sites?include_credentials=1");
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById("sitesGrid").innerHTML = `<div style="color:#ff1744">${data.error || "Failed to load sites."}</div>`;
+          return;
+        }
+        const sites = data;
+        document.getElementById("siteCount").textContent = sites.length + " sites";
+        document.getElementById("sitesGrid").innerHTML = sites.map(s => `
+          <div class="site-item">
+            <div class="site-name">🌐 ${s.name}</div>
+            <div class="site-url">${s.url}</div>
+            <div class="site-id-row">
+              <div><div class="label">Site ID</div><div class="val">${s.id}</div></div>
+              <button class="copy-btn" onclick="copyText('${s.id}', this)">Copy ID</button>
+            </div>
+            <div class="site-id-row">
+              <div><div class="label">API Key</div><div class="val">${s.api_key}</div></div>
+              <button class="copy-btn" onclick="copyText('${s.api_key}', this)">Copy Key</button>
+            </div>
+          </div>`).join("");
+      } catch(e) {
+        document.getElementById("sitesGrid").innerHTML = '<div style="color:#ff1744">Failed to load sites. Is the server running?</div>';
+      }
+    }
+
+    function showToast() {
+      const t = document.getElementById('copyToast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 1800);
+    }
+
+    function copyText(t, btn) {
+      navigator.clipboard.writeText(t).then(() => {
+        if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.color='#00ff88'; setTimeout(()=>{ btn.textContent=orig; btn.style.color=''; }, 1800); }
+        showToast();
+      }).catch(() => {});
+    }
+
+    function copySnippet() {
+      const txt = `<!-- SOC Monitoring Agent -->\n<script src="${BASE_URL}/static/agent.js"\n        data-site="YOUR_SITE_ID"\n        data-key="YOUR_API_KEY"><\/script>`;
+      navigator.clipboard.writeText(txt).then(() => showToast()).catch(() => {});
+    }
+
+    function copyCurl() {
+      const txt = `Invoke-RestMethod -Uri "${BASE_URL}/api/agent/report" \`\n  -Method POST -ContentType "application/json" \`\n  -Body '{"site_id":"gov-portal","api_key":"YOUR_API_KEY","ip":"218.92.0.142","method":"POST","path":"/admin/login","user_agent":"python-requests/2.28","referer":"http://evil.ru","country":"CN","city":"Beijing","asn":"AS4134","bytes_in":1240}'`;
+      navigator.clipboard.writeText(txt).then(() => showToast()).catch(() => {});
+    }
+
+    loadSites();
+  </script>
+</body>
+</html>
+ 
+===== FILE: static\index.html ===== 
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Cyber Attack Detection — SOC Dashboard</title>
+  <meta name="description" content="Real-time AI-powered cybersecurity monitoring dashboard with threat detection, IP blocking, and attack visualization." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <div class="header-logo">🛡️</div>
+      <div>
+        <div class="header-title">AI Cyber Attack Detection System</div>
+        <div class="header-subtitle">Real-Time Threat Monitoring Dashboard</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">System Secure</span>
+      </div>
+      <!-- User info -->
+      <div style="display:flex;align-items:center;gap:10px;border-left:1px solid rgba(255,255,255,0.08);padding-left:14px;margin-left:6px;">
+        <div style="text-align:right;">
+          <div style="font-size:0.78rem;font-weight:600;color:#e8eaf6;" id="userNameDisplay">Analyst</div>
+          <div style="font-size:0.65rem;color:#8892b0;" id="userRoleDisplay">analyst</div>
+        </div>
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e5ff33,#00e5ff88);border:1.5px solid #00e5ff55;display:flex;align-items:center;justify-content:center;font-size:0.9rem;">👤</div>
+        <a href="/auth/logout" title="Logout" style="background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;border-radius:8px;padding:6px 11px;font-size:0.72rem;font-weight:700;text-decoration:none;transition:.2s;" onmouseover="this.style.background='rgba(255,23,68,0.25)'" onmouseout="this.style.background='rgba(255,23,68,0.12)'">⏻ Logout</a>
+      </div>
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">☀️</button>
+      <button class="theme-toggle" id="soundToggle" title="Toggle alert sound">🔊</button>
+    </div>
+  </header>
+
+  <!-- ALERT BANNER -->
+  <div class="alert-banner" id="alertBanner">
+    <span id="alertText">⚠️ High Severity Attack Detected</span>
+    <button class="close-btn" id="alertClose">✕</button>
+  </div>
+
+  <!-- TAB NAV -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="live">📡 Live Feed</button>
+    <button class="tab-btn" data-tab="sites">🌐 Site Monitor</button>
+    <button class="tab-btn" data-tab="embed">⚙️ Deploy Agent</button>
+  </nav>
+
+  <main class="main">
+
+    <!-- ================================================================
+         TAB 1: LIVE FEED
+         ================================================================ -->
+    <div id="tab-live" class="tab-content active">
+
+      <!-- Stats Cards -->
+      <section class="stats-grid fade-in">
+        <div class="stat-card events">
+          <div class="icon">📡</div>
+          <div class="label">Total Events</div>
+          <div class="value" id="statEvents">0</div>
+          <div class="sub">Monitored requests</div>
+        </div>
+        <div class="stat-card attacks">
+          <div class="icon">⚔️</div>
+          <div class="label">Total Attacks</div>
+          <div class="value" id="statAttacks">0</div>
+          <div class="sub">Non-normal events</div>
+        </div>
+        <div class="stat-card blocked">
+          <div class="icon">🚫</div>
+          <div class="label">Blocked IPs</div>
+          <div class="value" id="statBlocked">0</div>
+          <div class="sub">Auto-blocked addresses</div>
+        </div>
+        <div class="stat-card threat">
+          <div class="icon">🎯</div>
+          <div class="label">Active Threat Level</div>
+          <div class="value" id="statThreat">None</div>
+          <div class="threat-meter">
+            <div class="threat-meter-bar">
+              <div class="threat-meter-fill" id="threatFill" style="width:5%; background:var(--neon-green);"></div>
+            </div>
+            <div class="threat-meter-labels">
+              <span>Safe</span><span>Low</span><span>Medium</span><span>High</span><span>Critical</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Charts Row -->
+      <section class="grid-2 fade-in">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">📊 Attack Type Distribution</div>
+            <span class="panel-badge">Live</span>
+          </div>
+          <div class="chart-container"><canvas id="attackChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🎯 Severity Breakdown</div>
+            <span class="panel-badge">Live</span>
+          </div>
+          <div class="chart-container"><canvas id="sevChart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- Traffic + Packet Stream -->
+      <section class="grid-2 fade-in">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">📈 Network Traffic Volume</div>
+            <span class="panel-badge">Live</span>
+          </div>
+          <div class="chart-container" style="height:160px;"><canvas id="trafficChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🖧 Live Packet Stream</div>
+            <span class="panel-badge">Raw</span>
+          </div>
+          <div class="packet-stream" id="packetStream"></div>
+        </div>
+      </section>
+
+      <!-- Attack Table + Blocked IPs -->
+      <section class="grid-3 fade-in">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🔴 Live Attack Feed</div>
+            <span class="panel-badge" id="feedBadge">Live</span>
+          </div>
+          <div style="overflow-x:auto; max-height:420px; overflow-y:auto;">
+            <table class="attack-table">
+              <thead>
+                <tr>
+                  <th>Time</th><th>IP Address</th><th>Attack Type</th>
+                  <th>Severity</th><th>Origin · Proto:Port</th><th>Bytes</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="attackTableBody">
+                <tr><td colspan="7" class="empty-state"><div class="icon">📡</div>Awaiting data…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title">🚫 Blocked IPs</div></div>
+          <div class="blocked-list" id="blockedList">
+            <div class="empty-state"><div class="icon">🛡️</div>No blocked IPs</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Terminal -->
+      <section class="fade-in">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">💻 System Activity Log</div>
+            <span class="panel-badge">Terminal</span>
+          </div>
+          <div class="terminal" id="terminal"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================================================================
+         TAB 2: SITE MONITOR
+         ================================================================ -->
+    <div id="tab-sites" class="tab-content">
+
+      <!-- Site selector + stats -->
+      <section class="fade-in" style="margin-bottom:24px;">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🌐 Monitored Sites</div>
+            <span class="panel-badge">Live</span>
+          </div>
+          <div class="site-cards" id="siteCards">
+            <div class="empty-state"><div class="icon">🌐</div>Loading sites…</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Per-site attack feed -->
+      <section class="fade-in">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🎯 Site Attack Feed</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <select id="siteSelect" class="site-select">
+                <option value="">— Select a site —</option>
+              </select>
+              <span class="panel-badge" id="siteBadge">Waiting</span>
+            </div>
+          </div>
+          <div style="overflow-x:auto; max-height:500px; overflow-y:auto;">
+            <table class="attack-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>IP Address</th>
+                  <th>Attack</th>
+                  <th>Severity</th>
+                  <th>Method · Path</th>
+                  <th>Country / City</th>
+                  <th>ASN</th>
+                  <th>User-Agent</th>
+                  <th>Bytes</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="siteTableBody">
+                <tr><td colspan="10" class="empty-state"><div class="icon">🌐</div>Select a site above</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Origin details panel -->
+      <section class="grid-2 fade-in" style="margin-top:24px;" id="siteAnalyticsSection">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🗺️ Top Attack Origins</div>
+          </div>
+          <div class="chart-container" style="height:220px;"><canvas id="siteCountryChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🔗 Top Targeted Paths</div>
+          </div>
+          <div class="chart-container" style="height:220px;"><canvas id="sitePathChart"></canvas></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================================================================
+         TAB 3: DEPLOY AGENT (embedded from /embed)
+         ================================================================ -->
+    <div id="tab-embed" class="tab-content">
+      <div class="embed-wrapper fade-in">
+        <iframe src="/embed" id="embedFrame" title="Deploy Agent"></iframe>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
+ 
+===== FILE: static\login.html ===== 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login — AI Cyber SOC</title>
+  <meta name="description" content="Login to the AI Cyber Attack Detection SOC Dashboard"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{
+      --neon-cyan:#00e5ff;--neon-green:#00ff88;--neon-red:#ff1744;
+      --bg:#060b18;--card-bg:rgba(10,20,40,0.85);
+      --border:rgba(0,229,255,0.15);--text:#e8eaf6;--sub:#8892b0;
+    }
+    body{
+      font-family:'Inter',sans-serif;background:var(--bg);
+      color:var(--text);min-height:100vh;
+      display:flex;align-items:center;justify-content:center;
+      overflow:hidden;position:relative;
+    }
+
+    /* ---- Animated grid background ---- */
+    .bg-grid{
+      position:fixed;inset:0;z-index:0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);
+      background-size:44px 44px;
+      animation:gridMove 20s linear infinite;
+    }
+    @keyframes gridMove{0%{background-position:0 0}100%{background-position:44px 44px}}
+
+    /* ---- Glowing orbs ---- */
+    .orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.18;animation:orbFloat 8s ease-in-out infinite;}
+    .orb1{width:400px;height:400px;background:#00e5ff;top:-100px;left:-100px;animation-delay:0s;}
+    .orb2{width:300px;height:300px;background:#7c4dff;bottom:-80px;right:-80px;animation-delay:-3s;}
+    .orb3{width:200px;height:200px;background:#00ff88;top:50%;left:60%;animation-delay:-6s;}
+    @keyframes orbFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-30px) scale(1.08)}}
+
+    /* ---- Card ---- */
+    .card{
+      position:relative;z-index:10;
+      width:100%;max-width:420px;padding:44px 40px;
+      background:var(--card-bg);
+      border:1px solid var(--border);
+      border-radius:20px;
+      backdrop-filter:blur(20px);
+      box-shadow:0 0 80px rgba(0,229,255,0.07),0 30px 60px rgba(0,0,0,0.5);
+      animation:cardIn .5s cubic-bezier(.22,1,.36,1);
+    }
+    @keyframes cardIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+
+    /* ---- Logo ---- */
+    .logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;}
+    .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,#00e5ff22,#00e5ff55);border:1px solid #00e5ff44;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
+    .logo-text{font-size:1rem;font-weight:700;color:var(--neon-cyan);}
+    .logo-sub{font-size:0.7rem;color:var(--sub);}
+
+    h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
+    .subtitle{color:var(--sub);font-size:0.85rem;margin-bottom:28px;}
+
+    /* ---- Flash messages ---- */
+    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:16px;font-weight:500;}
+    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
+
+    /* ---- Form ---- */
+    .form-group{margin-bottom:16px;position:relative;}
+    label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
+    input{
+      width:100%;padding:12px 14px;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.1);
+      border-radius:10px;color:var(--text);
+      font-family:'Inter',sans-serif;font-size:0.9rem;
+      transition:border-color .2s,box-shadow .2s;outline:none;
+    }
+    input:focus{border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,229,255,0.1);}
+    input::placeholder{color:#4a5568;}
+
+    /* ---- Password toggle ---- */
+    .pwd-wrap{position:relative;}
+    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--sub);cursor:pointer;font-size:1rem;padding:4px;}
+    .pwd-toggle:hover{color:var(--neon-cyan);}
+
+    /* ---- Submit ---- */
+    .btn-primary{
+      width:100%;padding:13px;margin-top:6px;
+      background:linear-gradient(135deg,#00b4d8,#00e5ff);
+      border:none;border-radius:10px;
+      color:#060b18;font-weight:700;font-size:0.95rem;
+      cursor:pointer;transition:.2s;letter-spacing:.3px;
+    }
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,229,255,0.3);}
+    .btn-primary:active{transform:none;}
+
+    /* ---- Divider ---- */
+    .divider{display:flex;align-items:center;gap:12px;margin:20px 0;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.08);}
+    .divider span{color:var(--sub);font-size:0.75rem;}
+
+    /* ---- Footer link ---- */
+    .footer-link{text-align:center;margin-top:22px;font-size:0.83rem;color:var(--sub);}
+    .footer-link a{color:var(--neon-cyan);text-decoration:none;font-weight:600;}
+    .footer-link a:hover{text-decoration:underline;}
+
+    /* ---- Secure badge ---- */
+    .secure-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:0.72rem;color:#4a5568;}
+    .secure-badge svg{width:13px;height:13px;fill:#4a5568;}
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-text">AI Cyber SOC</div>
+        <div class="logo-sub">Security Operations Center</div>
+      </div>
+    </div>
+
+    <h1>Welcome back</h1>
+    <div class="subtitle">Sign in to access your SOC dashboard</div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="/auth/login">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" name="password" id="pwdField" placeholder="••••••••" required autocomplete="current-password"/>
+          <button type="button" class="pwd-toggle" onclick="togglePwd()" title="Show/Hide password">👁</button>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary">Sign In →</button>
+    </form>
+
+    <div class="divider"><span>or</span></div>
+
+    <div class="footer-link">
+      Don't have an account? <a href="/auth/signup">Create one</a>
+    </div>
+
+    <div class="secure-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+      Secured · All sessions encrypted
+    </div>
+  </div>
+
+  <script>
+    function togglePwd(){
+      const f=document.getElementById('pwdField');
+      f.type=f.type==='password'?'text':'password';
+    }
+  </script>
+</body>
+</html>
+ 
+===== FILE: static\script.js ===== 
+// =============================================================================
+// script.js — SOC Dashboard Logic
+// Live Feed + Site Monitor + Tab switching + realistic simulation
+// =============================================================================
+
+// Dynamic base URL — works on localhost AND on any deployed domain (Render, etc.)
+const BASE_URL   = window.location.origin;
+const API        = BASE_URL + "/dashboard";
+const SITES_API  = BASE_URL + "/api/sites";
+const LOGS_API   = BASE_URL + "/api/agent/logs";
+const POLL_MS    = 5000;
+
+
+// ---- State ----
+let prevEventCount = 0;
+let soundEnabled   = true;
+let alertTimeout   = null;
+let attackChart    = null;
+let sevChart       = null;
+let lineChart      = null;
+let siteCountryChart = null;
+let sitePathChart    = null;
+let lineData       = [];
+let packetSeqNum   = 10000 + Math.floor(Math.random() * 50000);
+let activeSiteId   = "";
+let activeTab      = "live";
+
+// ---- DOM refs ----
+let dom = {};
+
+// ---- Realistic data pools ----
+const COUNTRIES = [
+  { code: "CN", flag: "🇨🇳", name: "China" },
+  { code: "RU", flag: "🇷🇺", name: "Russia" },
+  { code: "US", flag: "🇺🇸", name: "United States" },
+  { code: "BR", flag: "🇧🇷", name: "Brazil" },
+  { code: "IN", flag: "🇮🇳", name: "India" },
+  { code: "DE", flag: "🇩🇪", name: "Germany" },
+  { code: "KP", flag: "🇰🇵", name: "North Korea" },
+  { code: "IR", flag: "🇮🇷", name: "Iran" },
+  { code: "UA", flag: "🇺🇦", name: "Ukraine" },
+  { code: "NG", flag: "🇳🇬", name: "Nigeria" },
+];
+const ATTACK_SIGNATURES = {
+  "neptune":     { sig: "SYN flood — TCP flags: [SYN] repeated",          port: 80,   proto: "TCP" },
+  "portsweep":   { sig: "Sequential port scan — ICMP unreachable replies",  port: 22,   proto: "ICMP" },
+  "smurf":       { sig: "ICMP amplification — broadcast echo requests",     port: 0,    proto: "ICMP" },
+  "satan":       { sig: "SATAN scan — probing well-known service ports",    port: 111,  proto: "UDP" },
+  "ipsweep":     { sig: "Horizontal sweep — ARP requests across /24 range", port: 0,    proto: "ICMP" },
+  "back":        { sig: "Apache URL overflow — malformed GET request",      port: 80,   proto: "TCP" },
+  "warezclient": { sig: "FTP data exfiltration — large outbound transfer",  port: 21,   proto: "TCP" },
+  "teardrop":    { sig: "Fragmented packet overlap — IP offset exploit",    port: 0,    proto: "UDP" },
+  "pod":         { sig: "Ping of Death — oversize ICMP > 65535 bytes",      port: 0,    proto: "ICMP" },
+  "nmap":        { sig: "Nmap stealth scan — TCP SYN half-open",            port: 443,  proto: "TCP" },
+  "bruteforce":  { sig: "Credential stuffing — 500+ auth attempts/min",     port: 22,   proto: "TCP" },
+  "normal":      { sig: "Benign request — no anomaly detected",             port: 443,  proto: "TCP" },
+};
+const REALISTIC_IPS = [
+  "218.92.0.142","185.220.101.47","194.165.16.73","45.153.160.2",
+  "89.163.252.230","104.244.76.52","62.210.115.87","5.188.206.44",
+  "167.94.138.53","45.155.205.210","37.120.247.33","2.56.57.67",
+];
+const COMMON_PORTS = [21,22,23,25,53,80,110,135,139,143,443,445,3306,3389,8080,6379];
+const TERMINAL_BACKGROUND_MESSAGES = [
+  () => `IDS Engine: Inspecting packet seq=${++packetSeqNum} — TTL=${64+Math.floor(Math.random()*64)} len=${Math.floor(Math.random()*1400+64)} bytes`,
+  () => `Firewall: iptables ACCEPT rule matched — src ${randIP()} via eth0`,
+  () => `NetFilter: Connection tracking table ${Math.floor(Math.random()*12000+3000)}/65535 entries`,
+  () => `BGP: Received UPDATE from AS${Math.floor(Math.random()*65000+1000)} — ${Math.floor(Math.random()*20+1)} new prefixes`,
+  () => `SSL/TLS: Handshake completed — TLSv1.3 with ECDHE-RSA-AES256-GCM-SHA384`,
+  () => `IDS Engine: Flow analytics updated — ${Math.floor(Math.random()*900+100)} flows/sec baseline`,
+  () => `SIEM: Correlation rule #${Math.floor(Math.random()*9000+1000)} evaluated — no match`,
+  () => `DNS: Resolved ${randDomain()} → ${randIP()} (TTL 300s)`,
+  () => `ML Model: Feature vector scored — confidence ${(Math.random()*10+89).toFixed(2)}%`,
+  () => `GeoIP: Lookup ${randIP()} → ${COUNTRIES[Math.floor(Math.random()*COUNTRIES.length)].name} (AS${Math.floor(Math.random()*65000)})`,
+  () => `WAF: Request inspected — ModSecurity score 0/${Math.floor(Math.random()*5)} — PASS`,
+  () => `PCAP: Captured ${Math.floor(Math.random()*500+100)} packets — buffer ${Math.floor(Math.random()*80+10)}% full`,
+  () => `Rate-limiter: ${randIP()} — ${Math.floor(Math.random()*200+50)} req/min — within threshold`,
+  () => `Entropy check: Payload randomness ${(Math.random()*0.4+0.5).toFixed(3)} bits/byte — benign`,
+];
+const SIMULATED_ALERT_EVENTS = [
+  { type: "warn",  msg: (ip) => `Port scan detected — ${ip} probed ${Math.floor(Math.random()*200+50)} ports in ${(Math.random()*3+0.5).toFixed(1)}s` },
+  { type: "warn",  msg: (ip) => `Unusual user-agent: 'python-requests/2.28' from ${ip} — possible bot` },
+  { type: "error", msg: (ip) => `SYN flood threshold exceeded — ${ip} sent ${Math.floor(Math.random()*5000+1000)} SYN/s` },
+  { type: "warn",  msg: (ip) => `Geo anomaly: ${ip} — new country origin (${COUNTRIES[Math.floor(Math.random()*COUNTRIES.length)].name})` },
+  { type: "error", msg: (ip) => `Payload matched CVE-2021-44228 (Log4Shell) signature — src ${ip}` },
+  { type: "warn",  msg: (ip) => `Repeated 404 errors (${Math.floor(Math.random()*100+20)}) from ${ip} — directory traversal suspected` },
+  { type: "error", msg: (ip) => `SQL injection pattern detected in POST body — src ${ip}` },
+  { type: "error", msg: (ip) => `XSS payload detected in GET param '?q=' from ${ip}` },
+  { type: "warn",  msg: (ip) => `ICMP flood — ${ip} sending ${Math.floor(Math.random()*10000+1000)} pings/s` },
+];
+
+// ---- Utils ----
+function randIP()    { return REALISTIC_IPS[Math.floor(Math.random()*REALISTIC_IPS.length)]; }
+function randPort()  { return COMMON_PORTS[Math.floor(Math.random()*COMMON_PORTS.length)]; }
+function randDomain(){ const t=["com","net","org","io","ru","cn"],w=["update","cdn","api","mail","proxy"]; return w[Math.floor(Math.random()*w.length)]+Math.floor(Math.random()*99)+"."+t[Math.floor(Math.random()*t.length)]; }
+function randCountry(){ return COUNTRIES[Math.floor(Math.random()*COUNTRIES.length)]; }
+function fmtBytes(b){ if(b>=1048576) return (b/1048576).toFixed(1)+" MB"; if(b>=1024) return (b/1024).toFixed(1)+" KB"; return b+" B"; }
+
+// ---- Audio ----
+function playAlertBeep() {
+  if (!soundEnabled) return;
+  try {
+    const ctx=new(window.AudioContext||window.webkitAudioContext)(),osc=ctx.createOscillator(),gain=ctx.createGain();
+    osc.type="square";osc.frequency.setValueAtTime(880,ctx.currentTime);osc.frequency.setValueAtTime(660,ctx.currentTime+0.1);osc.frequency.setValueAtTime(880,ctx.currentTime+0.2);
+    gain.gain.setValueAtTime(0.15,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.4);
+    osc.connect(gain).connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+0.4);
+  } catch(_){}
+}
+
+// ---- Theme ----
+function toggleTheme() {
+  const html=document.documentElement,next=html.getAttribute("data-theme")==="light"?"dark":"light";
+  html.setAttribute("data-theme",next);dom.themeBtn.textContent=next==="light"?"🌙":"☀️";localStorage.setItem("soc-theme",next);
+}
+function initTheme() {
+  const saved=localStorage.getItem("soc-theme")||"dark";
+  document.documentElement.setAttribute("data-theme",saved);dom.themeBtn.textContent=saved==="light"?"🌙":"☀️";
+}
+function toggleSound(){ soundEnabled=!soundEnabled;dom.soundBtn.textContent=soundEnabled?"🔊":"🔇"; }
+
+// ---- Severity helpers ----
+function sevClass(s){ return s?s.toLowerCase().replace(/\s/g,""):"none"; }
+function sevOrder(s){ return{none:0,low:1,medium:2,high:3,critical:4}[sevClass(s)]||0; }
+function maxSeverity(logs){ let mx=0;for(const e of logs)mx=Math.max(mx,sevOrder(e.severity));return["None","Low","Medium","High","Critical"][mx]; }
+function fmtTime(ts){ if(!ts)return"—"; try{const d=new Date(ts);return d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return ts;} }
+
+// ---- Tab switching ----
+function switchTab(tabId) {
+  activeTab = tabId;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-"+tabId));
+  if (tabId === "sites") pollSites();
+}
+
+// ---- Render: Live Feed ----
+function renderStats(data) {
+  const logs=data.attack_log||[],totalEvents=data.total_events||logs.length;
+  const attacks=logs.filter(e=>sevClass(e.severity)!=="none").length;
+  const blockedCount=(data.blocked_ips||[]).length,threat=maxSeverity(logs);
+  dom.statEvents.textContent=totalEvents;dom.statAttacks.textContent=attacks;
+  dom.statBlocked.textContent=blockedCount;dom.statThreat.textContent=threat;
+  dom.statThreat.className="value sev-"+sevClass(threat);
+  const pct={None:5,Low:20,Medium:45,High:70,Critical:95}[threat]||5;
+  const color={None:"var(--neon-green)",Low:"var(--sev-low)",Medium:"var(--neon-yellow)",High:"var(--neon-orange)",Critical:"var(--neon-red)"}[threat]||"var(--neon-green)";
+  dom.threatFill.style.width=pct+"%";dom.threatFill.style.background=color;dom.threatFill.style.boxShadow="0 0 14px "+color;
+  const underAttack=sevOrder(threat)>=3;
+  dom.statusBadge.className="status-badge"+(underAttack?" danger":"");
+  dom.statusText.textContent=underAttack?"⚠ UNDER ATTACK":"System Secure";
+}
+
+function renderTable(logs) {
+  const tbody=dom.tableBody,fragment=document.createDocumentFragment();
+  const display=[...logs].reverse().slice(0,100);
+  for(const e of display){
+    const tr=document.createElement("tr"),sev=sevClass(e.severity),isBlocked=sev==="critical"||sev==="high";
+    const ipHash=(e.ip||"").split("").reduce((a,c)=>a+c.charCodeAt(0),0);
+    const country=COUNTRIES[ipHash%COUNTRIES.length];
+    const sig=ATTACK_SIGNATURES[(e.attack||"normal").toLowerCase()]||ATTACK_SIGNATURES["normal"];
+    const port=sig.port||COMMON_PORTS[ipHash%COMMON_PORTS.length];
+    const bytes=fmtBytes((ipHash*137%900+64)*1024);
+    tr.innerHTML=`<td>${fmtTime(e.timestamp)}</td><td class="ip">${e.ip||"—"}</td><td title="${sig.sig}">${e.attack||"—"}</td><td><span class="sev-badge ${sev}">${e.severity||"—"}</span></td><td class="mono">${country.flag} ${country.code} · ${sig.proto}:${port}</td><td class="mono">${bytes}</td><td><span class="status-chip ${isBlocked?"blocked-chip":"allowed-chip"}">${isBlocked?"🚫 Blocked":"✅ Allowed"}</span></td>`;
+    fragment.appendChild(tr);
+  }
+  tbody.innerHTML="";tbody.appendChild(fragment);
+  if(tbody.firstChild)tbody.firstChild.classList.add("new-row");
+}
+
+function renderBlockedIPs(ips) {
+  const list=dom.blockedList;
+  if(!ips||ips.length===0){list.innerHTML='<div class="empty-state"><div class="icon">🛡️</div>No blocked IPs</div>';return;}
+  list.innerHTML=ips.map(ip=>{
+    const ipHash=ip.split("").reduce((a,c)=>a+c.charCodeAt(0),0);
+    const country=COUNTRIES[ipHash%COUNTRIES.length];
+    const port=COMMON_PORTS[ipHash%COMMON_PORTS.length];
+    return`<div class="blocked-ip-item"><span class="dot"></span><span>${country.flag} <strong>${ip}</strong></span><span class="blocked-meta">port ${port} · ${country.name}</span></div>`;
+  }).join("");
+}
+
+// ---- Terminal ----
+function addTerminalLog(text, type="info") {
+  const ts=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  const line=document.createElement("div");
+  line.className="log-line "+type;
+  line.innerHTML=`<span class="ts">[${ts}]</span> <span class="tag">[${type.toUpperCase()}]</span> ${text}`;
+  dom.terminal.appendChild(line);dom.terminal.scrollTop=dom.terminal.scrollHeight;
+  while(dom.terminal.children.length>300)dom.terminal.removeChild(dom.terminal.firstChild);
+}
+
+// ---- Packet stream ----
+function spawnPacketLine() {
+  if(!dom.packetStream)return;
+  const ip=randIP(),dport=randPort(),sport=Math.floor(Math.random()*60000+1025);
+  const ttl=Math.floor(Math.random()*64+64),len=Math.floor(Math.random()*1400+64);
+  const proto=Math.random()>0.3?"TCP":"UDP";
+  const flags=proto==="TCP"?["[SYN]","[ACK]","[PSH ACK]","[FIN ACK]","[RST]"][Math.floor(Math.random()*5)]:"";
+  const line=document.createElement("div");
+  line.className="pkt-line";
+  line.textContent=`${ip}:${sport} → 10.0.0.1:${dport}  ${proto} ${flags}  seq=${++packetSeqNum} TTL=${ttl} len=${len}`;
+  dom.packetStream.appendChild(line);dom.packetStream.scrollTop=dom.packetStream.scrollHeight;
+  while(dom.packetStream.children.length>80)dom.packetStream.removeChild(dom.packetStream.firstChild);
+}
+
+// ---- Charts ----
+function initCharts() {
+  const barCtx=document.getElementById("attackChart").getContext("2d");
+  attackChart=new Chart(barCtx,{type:"bar",data:{labels:[],datasets:[{label:"Occurrences",data:[],backgroundColor:[],borderRadius:6,barThickness:28}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#8892b0",font:{size:11}},grid:{display:false}},y:{ticks:{color:"#8892b0",stepSize:1},grid:{color:"rgba(255,255,255,0.04)"}}}}});
+  const pieCtx=document.getElementById("sevChart").getContext("2d");
+  sevChart=new Chart(pieCtx,{type:"doughnut",data:{labels:["None","Low","Medium","High","Critical"],datasets:[{data:[0,0,0,0,0],backgroundColor:["#00ff88","#66bb6a","#ffd600","#ff9100","#ff1744"],borderWidth:0,hoverOffset:8}]},options:{responsive:true,maintainAspectRatio:false,cutout:"62%",plugins:{legend:{position:"bottom",labels:{color:"#8892b0",padding:14,font:{size:11}}}}}});
+  const lineEl=document.getElementById("trafficChart");
+  if(lineEl){lineData=Array.from({length:20},()=>Math.floor(Math.random()*300+100));lineChart=new Chart(lineEl.getContext("2d"),{type:"line",data:{labels:lineData.map(()=>""),datasets:[{label:"Packets/s",data:lineData,borderColor:"#00e5ff",backgroundColor:"rgba(0,229,255,0.08)",borderWidth:2,pointRadius:0,tension:0.4,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{ticks:{color:"#8892b0",font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}}},animation:{duration:400}}});}
+  // Site charts
+  const scEl=document.getElementById("siteCountryChart");
+  if(scEl){siteCountryChart=new Chart(scEl.getContext("2d"),{type:"bar",data:{labels:[],datasets:[{label:"Attacks",data:[],backgroundColor:"#00e5ff",borderRadius:4,barThickness:20}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#8892b0",font:{size:10}},grid:{display:false}},y:{ticks:{color:"#8892b0",stepSize:1},grid:{color:"rgba(255,255,255,0.04)"}}}}});}
+  const spEl=document.getElementById("sitePathChart");
+  if(spEl){sitePathChart=new Chart(spEl.getContext("2d"),{type:"bar",data:{labels:[],datasets:[{label:"Hits",data:[],backgroundColor:"#d500f9",borderRadius:4,barThickness:20}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#8892b0",font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}},y:{ticks:{color:"#8892b0",font:{size:10}},grid:{display:false}}}}});}
+}
+
+function updateCharts(logs) {
+  const typeCounts={};
+  for(const e of logs){const t=e.attack||"unknown";typeCounts[t]=(typeCounts[t]||0)+1;}
+  const sorted=Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const barColors=sorted.map(([t])=>{const s=logs.find(e=>e.attack===t)?.severity;return{None:"#00ff88",Low:"#66bb6a",Medium:"#ffd600",High:"#ff9100",Critical:"#ff1744"}[s]||"#00e5ff";});
+  attackChart.data.labels=sorted.map(e=>e[0]);attackChart.data.datasets[0].data=sorted.map(e=>e[1]);attackChart.data.datasets[0].backgroundColor=barColors;attackChart.update("none");
+  const sevCounts={None:0,Low:0,Medium:0,High:0,Critical:0};
+  for(const e of logs)sevCounts[e.severity]=(sevCounts[e.severity]||0)+1;
+  sevChart.data.datasets[0].data=[sevCounts.None,sevCounts.Low,sevCounts.Medium,sevCounts.High,sevCounts.Critical];sevChart.update("none");
+  if(lineChart){const v=Math.floor(Math.random()*400+80);lineData.push(v);lineData.shift();lineChart.data.datasets[0].data=[...lineData];lineChart.update("none");}
+}
+
+// ---- Alerts ----
+function showAlert(msg){ dom.alertText.textContent=msg;dom.alertBanner.classList.add("show");playAlertBeep();clearTimeout(alertTimeout);alertTimeout=setTimeout(()=>dom.alertBanner.classList.remove("show"),6000); }
+function dismissAlert(){ dom.alertBanner.classList.remove("show");clearTimeout(alertTimeout); }
+
+// ---- Background simulation ----
+function runBackgroundSimulation() {
+  const msgFn=TERMINAL_BACKGROUND_MESSAGES[Math.floor(Math.random()*TERMINAL_BACKGROUND_MESSAGES.length)];
+  addTerminalLog(msgFn(),"info");
+  if(Math.random()<0.35){const ev=SIMULATED_ALERT_EVENTS[Math.floor(Math.random()*SIMULATED_ALERT_EVENTS.length)];addTerminalLog(ev.msg(randIP()),ev.type);}
+}
+
+// ---- Site Monitor ----
+async function pollSites() {
+  try {
+    const res = await fetch(SITES_API);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Unable to load sites");
+    const sites = data;
+
+    // Render site cards
+    const cards = document.getElementById("siteCards");
+    if (!cards) return;
+    if (!sites || sites.length === 0) {
+      cards.innerHTML = '<div class="empty-state"><div class="icon">🌐</div>No sites registered</div>';
+      return;
+    }
+    cards.innerHTML = sites.map(s => {
+      const threatClass = s.total_attacks > 10 ? "critical" : s.total_attacks > 3 ? "high" : s.total_attacks > 0 ? "medium" : "safe";
+      return `<div class="site-card ${threatClass}" onclick="selectSite('${s.id}')">
+        <div class="site-card-name">🌐 ${s.name}</div>
+        <div class="site-card-url">${s.url}</div>
+        <div class="site-card-stats">
+          <span class="site-stat events">${s.total_events} events</span>
+          <span class="site-stat attacks">${s.total_attacks} attacks</span>
+        </div>
+        <div class="site-card-id">ID: ${s.id}</div>
+      </div>`;
+    }).join("");
+
+    // Populate site select
+    const sel = document.getElementById("siteSelect");
+    if(sel){
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— Select a site —</option>' +
+        sites.map(s => `<option value="${s.id}" ${s.id===cur?"selected":""}>${s.name}</option>`).join("");
+    }
+  } catch(e) {
+    console.error("pollSites:", e);
+    const cards = document.getElementById("siteCards");
+    if (cards) {
+      cards.innerHTML = `<div class="empty-state"><div class="icon">🌐</div>${e.message || "Unable to load sites"}</div>`;
+    }
+  }
+}
+
+function selectSite(siteId) {
+  activeSiteId = siteId;
+  const sel = document.getElementById("siteSelect");
+  if(sel) sel.value = siteId;
+  pollSiteLogs();
+}
+
+async function pollSiteLogs() {
+  const siteId = activeSiteId || document.getElementById("siteSelect")?.value;
+  if(!siteId) return;
+  activeSiteId = siteId;
+
+  const badge = document.getElementById("siteBadge");
+  if(badge) badge.textContent = "Loading…";
+
+  try {
+    const res = await fetch(LOGS_API + "?site_id=" + encodeURIComponent(siteId));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Unable to load site logs");
+    const logs = data.attack_log || [];
+
+    if(badge) badge.textContent = logs.length + " events";
+
+    renderSiteTable(logs);
+    updateSiteCharts(logs);
+  } catch(e) {
+    console.error("pollSiteLogs:", e);
+    if(badge) badge.textContent = "Error";
+  }
+}
+
+function renderSiteTable(logs) {
+  const tbody = document.getElementById("siteTableBody");
+  if(!tbody) return;
+  if(!logs.length){
+    tbody.innerHTML='<tr><td colspan="10" class="empty-state"><div class="icon">🌐</div>No events for this site yet</td></tr>';
+    return;
+  }
+  const COUNTRY_FLAGS = {CN:"🇨🇳",RU:"🇷🇺",US:"🇺🇸",BR:"🇧🇷",IN:"🇮🇳",DE:"🇩🇪",KP:"🇰🇵",IR:"🇮🇷",UA:"🇺🇦",NG:"🇳🇬"};
+  const fragment = document.createDocumentFragment();
+  for(const e of logs){
+    const tr=document.createElement("tr"),sev=sevClass(e.severity),isBlocked=sev==="critical"||sev==="high";
+    const flag=COUNTRY_FLAGS[e.country]||"🌐";
+    const ua=(e.user_agent||"—").substring(0,40)+(e.user_agent&&e.user_agent.length>40?"…":"");
+    const path=(e.path||"/").substring(0,30)+(e.path&&e.path.length>30?"…":"");
+    const bytes=e.bytes_in?fmtBytes(e.bytes_in):"—";
+    tr.innerHTML=`
+      <td>${fmtTime(e.timestamp)}</td>
+      <td class="ip">${e.ip||"—"}</td>
+      <td>${e.attack||"—"}</td>
+      <td><span class="sev-badge ${sev}">${e.severity||"—"}</span></td>
+      <td class="mono">${e.method||"GET"} <span style="color:#00e5ff">${path}</span></td>
+      <td>${flag} ${e.country||"—"} ${e.city?'<span class="mono">('+e.city+')</span>':""}</td>
+      <td class="mono">${e.asn||"—"}</td>
+      <td class="mono" title="${e.user_agent||""}">${ua}</td>
+      <td class="mono">${bytes}</td>
+      <td><span class="status-chip ${isBlocked?"blocked-chip":"allowed-chip"}">${isBlocked?"🚫 Blocked":"✅ Allowed"}</span></td>`;
+    fragment.appendChild(tr);
+  }
+  tbody.innerHTML="";tbody.appendChild(fragment);
+  if(tbody.firstChild)tbody.firstChild.classList.add("new-row");
+}
+
+function updateSiteCharts(logs) {
+  if(!siteCountryChart||!sitePathChart) return;
+  // Top countries
+  const cc={};for(const e of logs){const c=e.country||"??";cc[c]=(cc[c]||0)+1;}
+  const byCC=Object.entries(cc).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const COUNTRY_FLAGS={CN:"🇨🇳",RU:"🇷🇺",US:"🇺🇸",BR:"🇧🇷",IN:"🇮🇳",DE:"🇩🇪",KP:"🇰🇵",IR:"🇮🇷",UA:"🇺🇦",NG:"🇳🇬"};
+  siteCountryChart.data.labels=byCC.map(([c])=>(COUNTRY_FLAGS[c]||"🌐")+" "+c);
+  siteCountryChart.data.datasets[0].data=byCC.map(e=>e[1]);siteCountryChart.update("none");
+  // Top paths
+  const pp={};for(const e of logs){const p=(e.path||"/").split("?")[0];pp[p]=(pp[p]||0)+1;}
+  const byPath=Object.entries(pp).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  sitePathChart.data.labels=byPath.map(([p])=>p.substring(0,25));
+  sitePathChart.data.datasets[0].data=byPath.map(e=>e[1]);sitePathChart.update("none");
+}
+
+// ---- Main Poll ----
+async function poll() {
+  try {
+    const res=await fetch(API);if(!res.ok)throw new Error("HTTP "+res.status);
+    const data=await res.json();const logs=data.attack_log||[];const newCount=data.total_events||logs.length;
+    renderStats(data);renderTable(logs);renderBlockedIPs(data.blocked_ips);updateCharts(logs);
+    if(newCount>prevEventCount){
+      const newLogs=logs.slice(prevEventCount);
+      for(const e of newLogs){
+        const sev=sevClass(e.severity),logType=sev==="critical"||sev==="high"?"error":sev==="medium"?"warn":sev==="none"?"ok":"info";
+        const sig=ATTACK_SIGNATURES[(e.attack||"normal").toLowerCase()]||ATTACK_SIGNATURES["normal"];
+        const country=COUNTRIES[(e.ip||"0.0.0.0").split("").reduce((a,c)=>a+c.charCodeAt(0),0)%COUNTRIES.length];
+        addTerminalLog(`[${sig.proto}:${sig.port}] ${e.attack} from ${e.ip} (${country.flag} ${country.name}) — ${e.severity} — ${sig.sig}`,logType);
+        if(sev==="critical")showAlert(`🚨 CRITICAL: ${e.attack} from ${e.ip} (${country.flag}) — IP auto-blocked`);
+        else if(sev==="high")showAlert(`⚠️ HIGH: ${e.attack} from ${e.ip} — temporary block applied`);
+      }
+      prevEventCount=newCount;
+    }
+    addTerminalLog(`Dashboard synced — ${newCount} total events — ${(data.blocked_ips||[]).length} blocked IPs`,"ok");
+    // If site monitor is active, refresh it too
+    if(activeTab==="sites" && activeSiteId) pollSiteLogs();
+  } catch(err){ addTerminalLog("⛔ Backend unreachable — "+err.message+" — retrying in "+(POLL_MS/1000)+"s","error"); }
+}
+
+// ---- Init ----
+document.addEventListener("DOMContentLoaded",()=>{
+  dom={
+    statEvents:document.getElementById("statEvents"),statAttacks:document.getElementById("statAttacks"),
+    statBlocked:document.getElementById("statBlocked"),statThreat:document.getElementById("statThreat"),
+    threatFill:document.getElementById("threatFill"),statusBadge:document.getElementById("statusBadge"),
+    statusText:document.getElementById("statusText"),tableBody:document.getElementById("attackTableBody"),
+    blockedList:document.getElementById("blockedList"),terminal:document.getElementById("terminal"),
+    alertBanner:document.getElementById("alertBanner"),alertText:document.getElementById("alertText"),
+    themeBtn:document.getElementById("themeToggle"),soundBtn:document.getElementById("soundToggle"),
+    packetStream:document.getElementById("packetStream"),
+  };
+  dom.themeBtn.addEventListener("click",toggleTheme);
+  dom.soundBtn.addEventListener("click",toggleSound);
+  document.getElementById("alertClose").addEventListener("click",dismissAlert);
+  // Tab buttons
+  document.querySelectorAll(".tab-btn").forEach(btn=>btn.addEventListener("click",()=>switchTab(btn.dataset.tab)));
+  // Site select
+  const sel=document.getElementById("siteSelect");
+  if(sel)sel.addEventListener("change",()=>{activeSiteId=sel.value;if(activeSiteId)pollSiteLogs();});
+
+  initTheme();initCharts();
+
+  // Load current user info into header + auto-select their site
+  fetch(BASE_URL + "/api/me").then(r=>r.json()).then(u=>{
+    const nameEl = document.getElementById("userNameDisplay");
+    const roleEl = document.getElementById("userRoleDisplay");
+    if(nameEl) nameEl.textContent = u.name || "Analyst";
+    if(roleEl) roleEl.textContent = u.is_admin ? "ADMIN" : ((u.site_id ? u.site_id.toUpperCase() : (u.role||"analyst").toUpperCase()));
+
+    // If user is linked to a site, auto-select it in Site Monitor
+    if(!u.is_admin && u.site_id){
+      activeSiteId = u.site_id;
+      const sel = document.getElementById("siteSelect");
+      if(sel){ sel.value = u.site_id; }
+      // Add a subtle site badge to header
+      const roleEl2 = document.getElementById("userRoleDisplay");
+      if(roleEl2) roleEl2.style.color = "#00e5ff";
+    }
+  }).catch(()=>{});
+
+  addTerminalLog("SOC Dashboard v2.0 initializing...","ok");
+  addTerminalLog("Loading ML model: attack_model.pkl — RandomForest (500 estimators)","info");
+  addTerminalLog("Database connected: SQLite @ ./cyber_attacks.db","info");
+  addTerminalLog("Agent endpoint active: POST /api/agent/report","info");
+  addTerminalLog("Snort rules loaded: 28,412 signatures","info");
+  addTerminalLog("GeoIP database: GeoLite2-City.mmdb — 3.1M entries","info");
+  setTimeout(()=>addTerminalLog("All systems operational — monitoring started","ok"),800);
+
+  poll();
+  setInterval(poll,POLL_MS);
+  setInterval(runBackgroundSimulation,2500);
+  setInterval(spawnPacketLine,400);
+});
+ 
+===== FILE: static\signup.html ===== 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sign Up — AI Cyber SOC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{--neon-cyan:#00e5ff;--neon-green:#00ff88;--neon-red:#ff1744;--bg:#060b18;--card-bg:rgba(10,20,40,0.85);--border:rgba(0,229,255,0.15);--text:#e8eaf6;--sub:#8892b0;}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:24px 0;}
+    .bg-grid{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);background-size:44px 44px;animation:gridMove 20s linear infinite;}
+    @keyframes gridMove{0%{background-position:0 0}100%{background-position:44px 44px}}
+    .orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.18;animation:orbFloat 8s ease-in-out infinite;}
+    .orb1{width:400px;height:400px;background:#7c4dff;top:-100px;right:-100px;animation-delay:0s;}
+    .orb2{width:300px;height:300px;background:#00e5ff;bottom:-80px;left:-80px;animation-delay:-4s;}
+    @keyframes orbFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-30px)}}
+    .card{position:relative;z-index:10;width:100%;max-width:430px;padding:40px;background:var(--card-bg);border:1px solid var(--border);border-radius:20px;backdrop-filter:blur(20px);box-shadow:0 0 80px rgba(124,77,255,0.07),0 30px 60px rgba(0,0,0,0.5);animation:cardIn .5s cubic-bezier(.22,1,.36,1);}
+    @keyframes cardIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+    .logo{display:flex;align-items:center;gap:12px;margin-bottom:24px;}
+    .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,#7c4dff22,#7c4dff55);border:1px solid #7c4dff44;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
+    .logo-text{font-size:1rem;font-weight:700;color:var(--neon-cyan);}
+    .logo-sub{font-size:0.7rem;color:var(--sub);}
+    h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;}
+    .subtitle{color:var(--sub);font-size:0.85rem;margin-bottom:24px;}
+    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:14px;font-weight:500;}
+    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .form-group{margin-bottom:14px;position:relative;}
+    label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
+    input{width:100%;padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text);font-family:'Inter',sans-serif;font-size:0.9rem;transition:border-color .2s,box-shadow .2s;outline:none;}
+    input:focus{border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,229,255,0.1);}
+    input::placeholder{color:#4a5568;}
+
+    /* Password strength */
+    .strength-bar{height:3px;border-radius:99px;background:rgba(255,255,255,0.07);margin-top:6px;overflow:hidden;}
+    .strength-fill{height:100%;border-radius:99px;transition:width .3s,background .3s;width:0%;}
+    .strength-label{font-size:0.68rem;color:var(--sub);margin-top:4px;display:flex;justify-content:flex-end;}
+
+    .pwd-wrap{position:relative;}
+    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--sub);cursor:pointer;font-size:1rem;padding:4px;}
+    .pwd-toggle:hover{color:var(--neon-cyan);}
+
+    .btn-primary{width:100%;padding:13px;margin-top:6px;background:linear-gradient(135deg,#7c4dff,#aa00ff);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;transition:.2s;letter-spacing:.3px;}
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(124,77,255,0.35);}
+    .btn-primary:active{transform:none;}
+
+    .divider{display:flex;align-items:center;gap:12px;margin:18px 0;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.08);}
+    .divider span{color:var(--sub);font-size:0.75rem;}
+
+    .terms{font-size:0.75rem;color:var(--sub);text-align:center;margin-top:14px;}
+    .terms a{color:var(--neon-cyan);text-decoration:none;}
+    .footer-link{text-align:center;margin-top:18px;font-size:0.83rem;color:var(--sub);}
+    .footer-link a{color:var(--neon-cyan);text-decoration:none;font-weight:600;}
+    .footer-link a:hover{text-decoration:underline;}
+    .secure-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:18px;font-size:0.72rem;color:#4a5568;}
+    .secure-badge svg{width:13px;height:13px;fill:#4a5568;}
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-text">AI Cyber SOC</div>
+        <div class="logo-sub">Security Operations Center</div>
+      </div>
+    </div>
+
+    <h1>Create account</h1>
+    <div class="subtitle">Join the SOC and start monitoring threats</div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="/auth/signup">
+      <div class="form-row">
+        <div class="form-group">
+          <label>First Name</label>
+          <input type="text" name="first_name" placeholder="Arjun" required/>
+        </div>
+        <div class="form-group">
+          <label>Last Name</label>
+          <input type="text" name="last_name" placeholder="Sharma"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="analyst@soc.gov" required autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" name="password" id="pwdField" placeholder="Min. 8 characters" required oninput="checkStrength(this.value)" autocomplete="new-password"/>
+          <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField')">👁</button>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strengthFill"></div></div>
+        <div class="strength-label"><span id="strengthLabel"></span></div>
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <div class="pwd-wrap">
+          <input type="password" name="confirm_password" id="pwdField2" placeholder="Repeat password" required autocomplete="new-password"/>
+          <button type="button" class="pwd-toggle" onclick="togglePwd('pwdField2')">👁</button>
+        </div>
+      </div>
+
+      <!-- Organisation Site Linking -->
+      <div style="border-top:1px solid rgba(255,255,255,0.07);margin:8px 0 16px;"></div>
+      <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#8892b0;margin-bottom:10px;">🔗 Link to Your Organisation's Site <span style="font-weight:400;color:#4a5568;text-transform:none;letter-spacing:0;">(required for company dashboards)</span></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Site ID</label>
+          <input type="text" name="site_id" placeholder="e.g. gov-portal" autocomplete="off"/>
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="text" name="api_key" placeholder="Paste your API key" autocomplete="off"/>
+        </div>
+      </div>
+      <div style="font-size:0.72rem;color:#4a5568;margin-top:-8px;margin-bottom:14px;">Company users must enter their valid Site ID &amp; API Key. Admin accounts can be granted separately.</div>
+
+      <button type="submit" class="btn-primary">Create Account →</button>
+    </form>
+
+    <div class="divider"><span>or</span></div>
+
+    <div class="footer-link">Already have an account? <a href="/auth/login">Sign in</a></div>
+
+    <div class="secure-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+      Passwords hashed with bcrypt · Never stored in plain text
+    </div>
+  </div>
+
+  <script>
+    function togglePwd(id){const f=document.getElementById(id);f.type=f.type==='password'?'text':'password';}
+    function checkStrength(v){
+      const fill=document.getElementById('strengthFill'),lbl=document.getElementById('strengthLabel');
+      let score=0;
+      if(v.length>=8)score++;if(v.length>=12)score++;
+      if(/[A-Z]/.test(v))score++;if(/[0-9]/.test(v))score++;if(/[^A-Za-z0-9]/.test(v))score++;
+      const levels=[
+        {w:'0%',c:'',t:''},
+        {w:'25%',c:'#ff1744',t:'Weak'},
+        {w:'50%',c:'#ff9100',t:'Fair'},
+        {w:'75%',c:'#ffd600',t:'Good'},
+        {w:'100%',c:'#00ff88',t:'Strong'},
+      ];
+      const l=levels[Math.min(score,4)];
+      fill.style.width=l.w;fill.style.background=l.c;lbl.textContent=l.t;lbl.style.color=l.c;
+    }
+  </script>
+</body>
+</html>
+ 
+===== FILE: static\site-widget.js ===== 
+// =============================================================================
+// site-widget.js — Embeddable Mini Dashboard for Monitored Sites
+// Companies embed this to show their own attack data on their website
+//
+// Usage:
+//   <script src="https://your-soc-server/static/site-widget.js"
+//           data-site="gov-portal"
+//           data-key="your-api-key"
+//           data-position="bottom-right"></script>
+// =============================================================================
+
+(function () {
+  "use strict";
+
+  // ---- Config from script tag ----
+  var scriptTag = document.currentScript ||
+    (function () {
+      var tags = document.getElementsByTagName("script");
+      return tags[tags.length - 1];
+    })();
+
+  var SITE_ID   = scriptTag.getAttribute("data-site") || "unknown";
+  var API_KEY   = scriptTag.getAttribute("data-key") || "";
+  var POSITION  = scriptTag.getAttribute("data-position") || "bottom-right"; // top-left, top-right, bottom-left, bottom-right
+  var SOC_URL   = scriptTag.src.replace(/\/static\/site-widget\.js.*/, "");
+  var API_BASE  = SOC_URL + "/api";
+
+  if (!API_KEY) {
+    console.error("[SOC Widget] ERROR: data-key attribute is required");
+    return;
+  }
+
+  // ---- Styles ----
+  var STYLES = `
+    .soc-widget {
+      position: fixed;
+      z-index: 999999;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #e8eaf6;
+      background: rgba(10, 14, 26, 0.95);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(0, 229, 255, 0.1);
+      backdrop-filter: blur(16px);
+      min-width: 320px;
+      max-width: 380px;
+      overflow: hidden;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+    .soc-widget.top-left { top: 20px; left: 20px; }
+    .soc-widget.top-right { top: 20px; right: 20px; }
+    .soc-widget.bottom-left { bottom: 20px; left: 20px; }
+    .soc-widget.bottom-right { bottom: 20px; right: 20px; }
+
+    .soc-widget-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, rgba(0, 229, 255, 0.1), rgba(0, 229, 255, 0.05));
+      border-bottom: 1px solid rgba(0, 229, 255, 0.15);
+    }
+    .soc-widget-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .soc-widget-shield { font-size: 16px; }
+    .soc-widget-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      background: rgba(0, 255, 136, 0.15);
+      color: #00ff88;
+      border: 1px solid rgba(0, 255, 136, 0.3);
+    }
+    .soc-widget-status.attack {
+      background: rgba(255, 23, 68, 0.15);
+      color: #ff1744;
+      border-color: rgba(255, 23, 68, 0.3);
+      animation: soc-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes soc-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 23, 68, 0.3); }
+      50% { box-shadow: 0 0 0 6px rgba(255, 23, 68, 0); }
+    }
+    .soc-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    .soc-widget-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .soc-stat {
+      text-align: center;
+    }
+    .soc-stat-value {
+      font-size: 20px;
+      font-weight: 800;
+      color: #00e5ff;
+      line-height: 1;
+    }
+    .soc-stat-value.danger { color: #ff1744; }
+    .soc-stat-value.warning { color: #ff9100; }
+    .soc-stat-label {
+      font-size: 10px;
+      color: #8892b0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    .soc-widget-section {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .soc-widget-section:last-child { border-bottom: none; }
+    .soc-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #8892b0;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .soc-live-badge {
+      font-size: 9px;
+      padding: 2px 6px;
+      background: rgba(0, 255, 136, 0.15);
+      color: #00ff88;
+      border-radius: 99px;
+    }
+
+    .soc-attack-list {
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .soc-attack-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      font-size: 12px;
+    }
+    .soc-attack-item:last-child { border-bottom: none; }
+    .soc-attack-info { display: flex; flex-direction: column; gap: 2px; }
+    .soc-attack-type { font-weight: 600; color: #e8eaf6; }
+    .soc-attack-ip { font-size: 10px; color: #00e5ff; font-family: 'SF Mono', monospace; }
+    .soc-attack-time { font-size: 10px; color: #4a5568; }
+    .soc-severity {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 99px;
+    }
+    .soc-severity.critical { background: rgba(255, 23, 68, 0.15); color: #ff1744; }
+    .soc-severity.high { background: rgba(255, 145, 0, 0.15); color: #ff9100; }
+    .soc-severity.medium { background: rgba(255, 214, 0, 0.15); color: #ffd600; }
+    .soc-severity.low { background: rgba(102, 187, 106, 0.15); color: #66bb6a; }
+    .soc-severity.none { background: rgba(0, 255, 136, 0.1); color: #00ff88; }
+
+    .soc-blocked-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+    .soc-blocked-ip {
+      font-size: 10px;
+      font-family: 'SF Mono', monospace;
+      padding: 4px 8px;
+      background: rgba(255, 23, 68, 0.1);
+      color: #ff5252;
+      border: 1px solid rgba(255, 23, 68, 0.2);
+      border-radius: 6px;
+    }
+
+    .soc-empty {
+      text-align: center;
+      padding: 20px;
+      color: #4a5568;
+      font-size: 12px;
+    }
+
+    .soc-widget-footer {
+      padding: 10px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      font-size: 10px;
+      color: #4a5568;
+      text-align: center;
+    }
+    .soc-widget-footer a {
+      color: #00e5ff;
+      text-decoration: none;
+    }
+
+    .soc-toggle-btn {
+      position: fixed;
+      z-index: 999998;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00b4d8, #00e5ff);
+      border: none;
+      color: #0a0e1a;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0, 229, 255, 0.4);
+      transition: transform 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .soc-toggle-btn:hover { transform: scale(1.1); }
+    .soc-toggle-btn.top-left { top: 20px; left: 20px; }
+    .soc-toggle-btn.top-right { top: 20px; right: 20px; }
+    .soc-toggle-btn.bottom-left { bottom: 20px; left: 20px; }
+    .soc-toggle-btn.bottom-right { bottom: 20px; right: 20px; }
+
+    .soc-widget.collapsed { transform: scale(0); opacity: 0; pointer-events: none; }
+  `;
+
+  // ---- Inject styles ----
+  var styleEl = document.createElement("style");
+  styleEl.textContent = STYLES;
+  document.head.appendChild(styleEl);
+
+  // ---- Create widget ----
+  var widget = document.createElement("div");
+  widget.className = "soc-widget " + POSITION;
+  widget.innerHTML = `
+    <div class="soc-widget-header">
+      <div class="soc-widget-title">
+        <span class="soc-widget-shield">🛡️</span>
+        <span>Security Monitor</span>
+      </div>
+      <div class="soc-widget-status" id="soc-status">
+        <span class="soc-dot"></span>
+        <span>Secure</span>
+      </div>
+    </div>
+    <div class="soc-widget-stats">
+      <div class="soc-stat">
+        <div class="soc-stat-value" id="soc-total-events">—</div>
+        <div class="soc-stat-label">Events</div>
+      </div>
+      <div class="soc-stat">
+        <div class="soc-stat-value" id="soc-attacks">—</div>
+        <div class="soc-stat-label">Attacks</div>
+      </div>
+      <div class="soc-stat">
+        <div class="soc-stat-value" id="soc-blocked">—</div>
+        <div class="soc-stat-label">Blocked</div>
+      </div>
+    </div>
+    <div class="soc-widget-section">
+      <div class="soc-section-title">
+        <span>⚔️ Recent Attacks</span>
+        <span class="soc-live-badge">● LIVE</span>
+      </div>
+      <div class="soc-attack-list" id="soc-attack-list">
+        <div class="soc-empty">Loading...</div>
+      </div>
+    </div>
+    <div class="soc-widget-section">
+      <div class="soc-section-title">🚫 Blocked IPs</div>
+      <div class="soc-blocked-list" id="soc-blocked-list">
+        <div class="soc-empty">No blocked IPs</div>
+      </div>
+    </div>
+    <div class="soc-widget-footer">
+      Protected by <a href="${SOC_URL}" target="_blank">AI Cyber SOC</a>
+    </div>
+  `;
+
+  // ---- Create toggle button ----
+  var toggleBtn = document.createElement("button");
+  toggleBtn.className = "soc-toggle-btn " + POSITION;
+  toggleBtn.innerHTML = "🛡️";
+  toggleBtn.title = "Security Monitor";
+  toggleBtn.onclick = function () {
+    widget.classList.toggle("collapsed");
+    toggleBtn.style.display = widget.classList.contains("collapsed") ? "flex" : "none";
+  };
+
+  // ---- Close widget when clicking outside ----
+  widget.addEventListener("click", function (e) {
+    if (e.target.closest(".soc-widget-header")) {
+      widget.classList.add("collapsed");
+      toggleBtn.style.display = "flex";
+    }
+  });
+
+  // ---- Add to page ----
+  document.body.appendChild(widget);
+  document.body.appendChild(toggleBtn);
+
+  // ---- Fetch data ----
+  function fetchData() {
+    fetch(API_BASE + "/widget/logs?site_id=" + encodeURIComponent(SITE_ID), {
+      headers: {
+        "X-Site-ID": SITE_ID,
+        "X-API-Key": API_KEY
+      }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        updateWidget(data);
+      })
+      .catch(function (err) {
+        console.error("[SOC Widget] Failed to fetch:", err);
+      });
+  }
+
+  // ---- Update widget ----
+  function updateWidget(data) {
+    var logs = data.attack_log || [];
+    var blocked = [];
+    var attackCount = 0;
+
+    // Count attacks and collect blocked IPs
+    logs.forEach(function (log) {
+      if (log.severity && log.severity !== "None") {
+        attackCount++;
+      }
+      if (log.action && log.action.includes("block")) {
+        blocked.push(log.ip);
+      }
+    });
+
+    // Update stats
+    document.getElementById("soc-total-events").textContent = logs.length;
+    document.getElementById("soc-attacks").textContent = attackCount;
+    document.getElementById("soc-blocked").textContent = blocked.length;
+
+    // Update status
+    var statusEl = document.getElementById("soc-status");
+    if (attackCount > 0) {
+      statusEl.className = "soc-widget-status attack";
+      statusEl.innerHTML = '<span class="soc-dot"></span><span>Under Attack</span>';
+    } else {
+      statusEl.className = "soc-widget-status";
+      statusEl.innerHTML = '<span class="soc-dot"></span><span>Secure</span>';
+    }
+
+    // Update attack list
+    var attackList = document.getElementById("soc-attack-list");
+    if (logs.length === 0) {
+      attackList.innerHTML = '<div class="soc-empty">No recent events</div>';
+    } else {
+      attackList.innerHTML = logs.slice(-5).reverse().map(function (log) {
+        var sevClass = (log.severity || "none").toLowerCase().replace(/\s/g, "");
+        var time = new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `
+          <div class="soc-attack-item">
+            <div class="soc-attack-info">
+              <span class="soc-attack-type">${log.attack || "Unknown"}</span>
+              <span class="soc-attack-ip">${log.ip || "—"}</span>
+              <span class="soc-attack-time">${time}</span>
+            </div>
+            <span class="soc-severity ${sevClass}">${log.severity || "—"}</span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // Update blocked IPs
+    var blockedList = document.getElementById("soc-blocked-list");
+    if (blocked.length === 0) {
+      blockedList.innerHTML = '<div class="soc-empty">No blocked IPs</div>';
+    } else {
+      blockedList.innerHTML = [...new Set(blocked)].slice(0, 10).map(function (ip) {
+        return `<span class="soc-blocked-ip">${ip}</span>`;
+      }).join("");
+    }
+  }
+
+  // ---- Initial fetch & poll ----
+  fetchData();
+  setInterval(fetchData, 10000); // Refresh every 10 seconds
+
+})();
+ 
+===== FILE: static\styles.css ===== 
+/* =============================================================================
+   styles.css — SOC Dashboard Theme
+   Dark theme · Glassmorphism · Neon accents · Smooth animations
+   ============================================================================= */
+
+/* ---- Google Fonts ---- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ---- Design Tokens ---- */
+:root {
+  /* Background */
+  --bg-primary:   #0a0e1a;
+  --bg-secondary: #0f1629;
+  --bg-card:      rgba(15, 22, 41, 0.65);
+  --bg-card-hover:rgba(20, 30, 55, 0.8);
+
+  /* Neon accent palette */
+  --neon-green:   #00ff88;
+  --neon-cyan:    #00e5ff;
+  --neon-yellow:  #ffd600;
+  --neon-orange:  #ff9100;
+  --neon-red:     #ff1744;
+  --neon-purple:  #d500f9;
+  --neon-blue:    #2979ff;
+
+  /* Severity colors */
+  --sev-none:     var(--neon-green);
+  --sev-low:      #66bb6a;
+  --sev-medium:   var(--neon-yellow);
+  --sev-high:     var(--neon-orange);
+  --sev-critical: var(--neon-red);
+
+  /* Text */
+  --text-primary: #e8eaf6;
+  --text-secondary: #8892b0;
+  --text-muted:   #4a5568;
+
+  /* Glass */
+  --glass-border: rgba(255,255,255,0.08);
+  --glass-blur:   16px;
+
+  /* Misc */
+  --radius:  16px;
+  --radius-sm: 10px;
+  --radius-xs: 6px;
+  --shadow:  0 8px 32px rgba(0,0,0,0.45);
+  --transition: 0.3s cubic-bezier(.4,0,.2,1);
+
+  /* Font */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Light theme overrides */
+[data-theme="light"] {
+  --bg-primary:    #f0f2f5;
+  --bg-secondary:  #ffffff;
+  --bg-card:       rgba(255,255,255,0.85);
+  --bg-card-hover: rgba(255,255,255,0.95);
+  --glass-border:  rgba(0,0,0,0.08);
+  --text-primary:  #1a202c;
+  --text-secondary:#4a5568;
+  --text-muted:    #a0aec0;
+  --shadow:        0 8px 32px rgba(0,0,0,0.10);
+}
+[data-theme="light"] .header { background: rgba(255,255,255,0.75); }
+[data-theme="light"] .stat-card,
+[data-theme="light"] .panel { background: var(--bg-card); border-color: rgba(0,0,0,0.06); }
+[data-theme="light"] .log-line { color: #1a202c; }
+
+/* ---- Reset ---- */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Animated background grid */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: gridPulse 8s ease-in-out infinite alternate;
+}
+@keyframes gridPulse {
+  0%   { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--neon-cyan); border-radius: 99px; }
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 32px;
+  background: rgba(10,14,26,0.8);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--glass-border);
+}
+.header-left { display: flex; align-items: center; gap: 14px; }
+.header-logo {
+  font-size: 1.6rem; display: flex; align-items: center;
+  filter: drop-shadow(0 0 6px var(--neon-cyan));
+}
+.header-title { font-weight: 800; font-size: 1.25rem; letter-spacing: -0.5px; }
+.header-subtitle { font-size: 0.78rem; color: var(--text-secondary); font-weight: 400; }
+
+.header-right { display: flex; align-items: center; gap: 16px; }
+
+/* Status badge */
+.status-badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 14px; border-radius: 99px;
+  font-size: 0.78rem; font-weight: 600;
+  background: rgba(0,255,136,0.08);
+  border: 1px solid rgba(0,255,136,0.25);
+  color: var(--neon-green);
+  transition: var(--transition);
+}
+.status-badge.danger {
+  background: rgba(255,23,68,0.10);
+  border-color: rgba(255,23,68,0.35);
+  color: var(--neon-red);
+  animation: dangerPulse 1.2s ease-in-out infinite;
+}
+@keyframes dangerPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,23,68,0.35); }
+  50%     { box-shadow: 0 0 0 8px rgba(255,23,68,0); }
+}
+
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Theme toggle */
+.theme-toggle {
+  background: var(--bg-card); border: 1px solid var(--glass-border);
+  color: var(--text-primary); cursor: pointer;
+  width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; transition: var(--transition);
+}
+.theme-toggle:hover { background: var(--bg-card-hover); transform: scale(1.08); }
+
+/* Sound toggle — same styles as theme-toggle (applied via shared class in HTML) */
+
+/* ============================================================
+   MAIN LAYOUT
+   ============================================================ */
+.main { position: relative; z-index: 1; padding: 24px 32px 48px; max-width: 1600px; margin: 0 auto; }
+
+/* ============================================================
+   STAT CARDS
+   ============================================================ */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px; margin-bottom: 28px;
+}
+
+.stat-card {
+  position: relative; overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow);
+  transition: var(--transition);
+}
+.stat-card:hover { transform: translateY(-4px); border-color: var(--neon-cyan); box-shadow: 0 12px 40px rgba(0,229,255,0.08); }
+.stat-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--accent, var(--neon-cyan));
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.stat-card .icon {
+  font-size: 1.8rem; margin-bottom: 10px;
+  filter: drop-shadow(0 0 8px var(--accent, var(--neon-cyan)));
+}
+.stat-card .label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; }
+.stat-card .value { font-size: 2rem; font-weight: 800; margin-top: 4px; line-height: 1; }
+.stat-card .sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 6px; }
+
+/* colour accents per card */
+.stat-card.events  { --accent: var(--neon-cyan); }
+.stat-card.attacks { --accent: var(--neon-orange); }
+.stat-card.blocked { --accent: var(--neon-red); }
+.stat-card.threat  { --accent: var(--neon-green); }
+
+.stat-card .value { color: var(--accent); }
+
+/* ============================================================
+   PANELS (generic glass panel)
+   ============================================================ */
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+  transition: var(--transition);
+}
+.panel:hover { border-color: rgba(255,255,255,0.12); }
+
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px;
+}
+.panel-title {
+  font-size: 1rem; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-badge {
+  font-size: 0.68rem; padding: 3px 9px;
+  border-radius: 99px; font-weight: 700;
+  background: rgba(0,229,255,0.12); color: var(--neon-cyan);
+}
+
+/* ============================================================
+   GRID LAYOUTS
+   ============================================================ */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+.grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 28px; }
+
+/* ============================================================
+   ATTACK TABLE
+   ============================================================ */
+.attack-table { width: 100%; border-collapse: collapse; }
+.attack-table thead th {
+  text-align: left; font-size: 0.7rem; font-weight: 700;
+  color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
+  padding: 10px 12px; border-bottom: 1px solid var(--glass-border);
+}
+.attack-table tbody td {
+  padding: 11px 12px; font-size: 0.82rem;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: var(--transition);
+}
+.attack-table tbody tr { transition: var(--transition); }
+.attack-table tbody tr:hover { background: rgba(0,229,255,0.04); }
+.attack-table tbody tr.new-row { animation: rowFlash 0.8s ease; }
+
+@keyframes rowFlash {
+  0%   { background: rgba(0,229,255,0.15); }
+  100% { background: transparent; }
+}
+
+.attack-table .ip { font-family: var(--font-mono); font-size: 0.8rem; color: var(--neon-cyan); }
+
+/* Severity badges */
+.sev-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 99px;
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+}
+.sev-badge.none     { background: rgba(0,255,136,0.10); color: var(--sev-none); }
+.sev-badge.low      { background: rgba(102,187,106,0.10); color: var(--sev-low); }
+.sev-badge.medium   { background: rgba(255,214,0,0.10);  color: var(--sev-medium); }
+.sev-badge.high     { background: rgba(255,145,0,0.12);  color: var(--sev-high); }
+.sev-badge.critical { background: rgba(255,23,68,0.12);  color: var(--sev-critical); animation: critPulse 1.5s infinite; }
+
+@keyframes critPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,23,68,0.3); }
+  50%     { box-shadow: 0 0 0 5px rgba(255,23,68,0); }
+}
+
+.status-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 99px;
+  font-size: 0.68rem; font-weight: 600;
+}
+.status-chip.blocked-chip { background: rgba(255,23,68,0.10); color: var(--neon-red); }
+.status-chip.allowed-chip { background: rgba(0,255,136,0.08); color: var(--neon-green); }
+
+/* ============================================================
+   BLOCKED IP LIST
+   ============================================================ */
+.blocked-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+.blocked-ip-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: rgba(255,23,68,0.06);
+  border: 1px solid rgba(255,23,68,0.15);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 0.82rem;
+  color: var(--neon-red);
+  transition: var(--transition);
+}
+.blocked-ip-item:hover { background: rgba(255,23,68,0.12); transform: translateX(4px); }
+.blocked-ip-item .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neon-red); box-shadow: 0 0 8px var(--neon-red); }
+
+.empty-state {
+  text-align: center; padding: 32px 16px;
+  color: var(--text-muted); font-size: 0.85rem;
+}
+.empty-state .icon { font-size: 2.4rem; margin-bottom: 10px; opacity: 0.6; }
+
+/* ============================================================
+   CHARTS
+   ============================================================ */
+.chart-container { position: relative; width: 100%; height: 260px; }
+.chart-container canvas { width: 100% !important; height: 100% !important; }
+
+/* ============================================================
+   TERMINAL LOG
+   ============================================================ */
+.terminal {
+  background: #050810; border-radius: var(--radius-sm);
+  padding: 14px 16px; max-height: 300px; overflow-y: auto;
+  font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.7;
+}
+.terminal .log-line { white-space: nowrap; color: var(--text-secondary); }
+.terminal .log-line .ts { color: var(--text-muted); }
+.terminal .log-line.info  .tag { color: var(--neon-cyan); }
+.terminal .log-line.warn  .tag { color: var(--neon-yellow); }
+.terminal .log-line.error .tag { color: var(--neon-red); }
+.terminal .log-line.ok    .tag { color: var(--neon-green); }
+
+/* Cursor blink */
+.terminal::after {
+  content: '▌'; color: var(--neon-cyan);
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+
+/* ============================================================
+   THREAT METER
+   ============================================================ */
+.threat-meter { margin-top: 12px; }
+.threat-meter-bar {
+  width: 100%; height: 10px; border-radius: 99px;
+  background: rgba(255,255,255,0.06); overflow: hidden;
+}
+.threat-meter-fill {
+  height: 100%; border-radius: 99px;
+  transition: width 0.8s ease, background 0.5s ease;
+  box-shadow: 0 0 12px var(--neon-green);
+}
+.threat-meter-labels {
+  display: flex; justify-content: space-between;
+  font-size: 0.65rem; color: var(--text-muted); margin-top: 6px;
+}
+
+/* ============================================================
+   ALERT BANNER
+   ============================================================ */
+.alert-banner {
+  position: fixed; top: 80px; right: 32px; z-index: 200;
+  padding: 14px 24px; border-radius: var(--radius-sm);
+  background: rgba(255,23,68,0.15);
+  border: 1px solid rgba(255,23,68,0.4);
+  color: var(--neon-red);
+  font-weight: 700; font-size: 0.88rem;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(255,23,68,0.20);
+  transform: translateX(120%);
+  transition: transform 0.5s cubic-bezier(.4,0,.2,1);
+  display: flex; align-items: center; gap: 10px;
+}
+.alert-banner.show { transform: translateX(0); }
+.alert-banner .close-btn {
+  background: none; border: none; color: var(--neon-red); cursor: pointer;
+  font-size: 1.1rem; margin-left: 12px; opacity: 0.7;
+  transition: var(--transition);
+}
+.alert-banner .close-btn:hover { opacity: 1; }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 1024px) {
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .header { padding: 14px 16px; flex-wrap: wrap; gap: 10px; }
+  .main { padding: 16px; }
+  .stats-grid { grid-template-columns: 1fr; }
+  .header-title { font-size: 1rem; }
+}
+
+/* ============================================================
+   UTILITY
+   ============================================================ */
+.fade-in { animation: fadeIn 0.5s ease both; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+
+/* Mono helper */
+.mono { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); }
+
+/* ============================================================
+   PACKET STREAM
+   ============================================================ */
+.packet-stream {
+  background: #020509;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  height: 160px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.65;
+  color: #3bffb8;
+}
+.pkt-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  animation: pkFadeIn 0.3s ease forwards;
+}
+@keyframes pkFadeIn { to { opacity: 0.85; } }
+
+/* ============================================================
+   BLOCKED IP — extra metadata
+   ============================================================ */
+.blocked-ip-item {
+  flex-wrap: wrap;
+}
+.blocked-meta {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: rgba(255,23,68,0.55);
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   TERMINAL — increased height for denser info
+   ============================================================ */
+.terminal { max-height: 380px; }
+
+/* ============================================================
+   TAB NAVIGATION
+   ============================================================ */
+.tab-nav {
+  position: sticky; top: 71px; z-index: 90;
+  display: flex; gap: 4px;
+  padding: 10px 32px 0;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--glass-border);
+}
+.tab-btn {
+  padding: 10px 22px; border: none; cursor: pointer;
+  background: transparent; color: var(--text-secondary);
+  font-family: var(--font-sans); font-size: 0.85rem; font-weight: 600;
+  border-bottom: 2px solid transparent; transition: var(--transition);
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+}
+.tab-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+.tab-btn.active { color: var(--neon-cyan); border-bottom-color: var(--neon-cyan); background: rgba(0,229,255,0.06); }
+
+/* ---- Tab content ---- */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ============================================================
+   SITE CARDS
+   ============================================================ */
+.site-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px;
+}
+.site-card {
+  padding: 18px 20px; border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer; transition: var(--transition);
+  position: relative; overflow: hidden;
+}
+.site-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--card-accent, var(--neon-cyan));
+}
+.site-card.safe     { --card-accent: var(--neon-green); }
+.site-card.medium   { --card-accent: var(--neon-yellow); }
+.site-card.high     { --card-accent: var(--neon-orange); }
+.site-card.critical { --card-accent: var(--neon-red); }
+.site-card:hover { transform: translateY(-3px); border-color: var(--card-accent, var(--neon-cyan)); box-shadow: 0 8px 30px rgba(0,229,255,0.08); }
+.site-card-name { font-weight: 700; font-size: 0.95rem; margin-bottom: 4px; }
+.site-card-url  { font-size: 0.72rem; color: var(--text-secondary); font-family: var(--font-mono); margin-bottom: 12px; }
+.site-card-stats{ display: flex; gap: 10px; }
+.site-stat      { font-size: 0.72rem; padding: 3px 8px; border-radius: 99px; font-weight: 600; }
+.site-stat.events  { background: rgba(0,229,255,0.10); color: var(--neon-cyan); }
+.site-stat.attacks { background: rgba(255,23,68,0.10);  color: var(--neon-red); }
+.site-card-id   { margin-top: 8px; font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+/* ---- Site select dropdown ---- */
+.site-select {
+  background: var(--bg-card); border: 1px solid var(--glass-border);
+  color: var(--text-primary); font-family: var(--font-sans); font-size: 0.82rem;
+  padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer;
+  transition: var(--transition);
+}
+.site-select:focus { outline: none; border-color: var(--neon-cyan); }
+
+/* ============================================================
+   EMBED / DEPLOY AGENT TAB
+   ============================================================ */
+.embed-wrapper {
+  width: 100%; border-radius: var(--radius);
+  overflow: hidden; background: var(--bg-card);
+  border: 1px solid var(--glass-border); box-shadow: var(--shadow);
+}
+.embed-wrapper iframe {
+  width: 100%; height: 85vh; border: none; display: block;
+}
+

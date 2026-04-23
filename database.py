@@ -10,6 +10,8 @@ import secrets
 from datetime import datetime
 from contextlib import contextmanager
 
+import bcrypt
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cyber_attacks.db")
 
 
@@ -50,6 +52,16 @@ def init_db():
                 expires_at  REAL,
                 blocked_at  TEXT DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS site_blocked_ips (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip          TEXT NOT NULL,
+                site_id     TEXT NOT NULL DEFAULT 'local',
+                reason      TEXT NOT NULL DEFAULT 'auto',
+                block_type  TEXT NOT NULL DEFAULT 'permanent',
+                expires_at  REAL,
+                blocked_at  TEXT DEFAULT (datetime('now')),
+                UNIQUE(ip, site_id)
+            );
             CREATE TABLE IF NOT EXISTS attack_history (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 ip          TEXT NOT NULL,
@@ -80,6 +92,8 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_log_ip       ON attack_log(ip);
             CREATE INDEX IF NOT EXISTS idx_log_severity ON attack_log(severity);
             CREATE INDEX IF NOT EXISTS idx_history_ip   ON attack_history(ip);
+            CREATE INDEX IF NOT EXISTS idx_site_block_site ON site_blocked_ips(site_id);
+            CREATE INDEX IF NOT EXISTS idx_site_block_ip   ON site_blocked_ips(ip);
         """)
 
         # Step 2: Migrate — add new columns if not present
@@ -105,7 +119,18 @@ def init_db():
         if "site_id" not in user_cols:
             conn.execute("ALTER TABLE users ADD COLUMN site_id TEXT REFERENCES sites(id)")
 
-        # Step 4: Now safe to create site_id index
+        # Step 4: Migrate attack history to be site-aware
+        history_cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_history)").fetchall()]
+        if "site_id" not in history_cols:
+            conn.execute("ALTER TABLE attack_history ADD COLUMN site_id TEXT DEFAULT 'local'")
+            conn.execute(
+                "UPDATE attack_history SET site_id = 'local' WHERE site_id IS NULL OR site_id = ''"
+            )
+
+        # Step 5: Backfill tenant-scoped blocks from the legacy table if needed
+        _migrate_legacy_blocks(conn)
+
+        # Step 6: Now safe to create site_id index
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_log_site ON attack_log(site_id)"
         )
@@ -169,40 +194,96 @@ def db_get_logs_by_site(site_id: str, limit: int = 200) -> list[dict]:
 # Blocked IPs
 # ---------------------------------------------------------------------------
 
-def db_block_ip(ip: str, severity: str):
+def _migrate_legacy_blocks(conn):
+    """Backfill tenant-aware blocks from the original blocked_ips table."""
+    has_site_blocks = conn.execute("SELECT COUNT(*) FROM site_blocked_ips").fetchone()[0]
+    if has_site_blocks > 0:
+        return
+
+    legacy_rows = conn.execute(
+        "SELECT ip, reason, block_type, expires_at, blocked_at FROM blocked_ips"
+    ).fetchall()
+    for row in legacy_rows:
+        site_rows = conn.execute(
+            "SELECT DISTINCT site_id FROM attack_log WHERE ip = ? AND site_id IS NOT NULL AND site_id != ''",
+            (row["ip"],),
+        ).fetchall()
+        site_ids = [site_row["site_id"] for site_row in site_rows] or ["local"]
+        for site_id in site_ids:
+            conn.execute(
+                """INSERT OR IGNORE INTO site_blocked_ips
+                   (ip, site_id, reason, block_type, expires_at, blocked_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    row["ip"], site_id, row["reason"], row["block_type"],
+                    row["expires_at"], row["blocked_at"],
+                ),
+            )
+
+
+def db_block_ip(ip: str, severity: str, site_id: str = "local"):
     """Block an IP based on severity."""
     if severity == "Critical":
         with get_db() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO blocked_ips (ip, reason, block_type, expires_at) VALUES (?, ?, 'permanent', NULL)",
-                (ip, f"auto-blocked ({severity})"),
+                """INSERT INTO site_blocked_ips (ip, site_id, reason, block_type, expires_at)
+                   VALUES (?, ?, ?, 'permanent', NULL)
+                   ON CONFLICT(ip, site_id) DO UPDATE SET
+                       reason = excluded.reason,
+                       block_type = 'permanent',
+                       expires_at = NULL,
+                       blocked_at = datetime('now')""",
+                (ip, site_id, f"auto-blocked ({severity})"),
             )
     elif severity == "High":
         expires = time.time() + 86_400
         with get_db() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO blocked_ips (ip, reason, block_type, expires_at) VALUES (?, ?, 'temporary', ?)",
-                (ip, f"auto-blocked ({severity})", expires),
+                """INSERT INTO site_blocked_ips (ip, site_id, reason, block_type, expires_at)
+                   VALUES (?, ?, ?, 'temporary', ?)
+                   ON CONFLICT(ip, site_id) DO UPDATE SET
+                       reason = excluded.reason,
+                       block_type = 'temporary',
+                       expires_at = excluded.expires_at,
+                       blocked_at = datetime('now')""",
+                (ip, site_id, f"auto-blocked ({severity})", expires),
             )
 
 
-def db_is_blocked(ip: str) -> bool:
+def db_is_blocked(ip: str, site_id: str = "local") -> bool:
     """Check if IP is currently blocked; auto-lift expired temp blocks."""
     with get_db() as conn:
-        row = conn.execute("SELECT block_type, expires_at FROM blocked_ips WHERE ip = ?", (ip,)).fetchone()
+        row = conn.execute(
+            "SELECT block_type, expires_at FROM site_blocked_ips WHERE ip = ? AND site_id = ?",
+            (ip, site_id),
+        ).fetchone()
         if row is None:
             return False
         if row["block_type"] == "temporary" and row["expires_at"] and time.time() > row["expires_at"]:
-            conn.execute("DELETE FROM blocked_ips WHERE ip = ?", (ip,))
+            conn.execute(
+                "DELETE FROM site_blocked_ips WHERE ip = ? AND site_id = ?",
+                (ip, site_id),
+            )
             return False
         return True
 
 
-def db_get_blocked_ips() -> list[str]:
-    """Return all currently blocked IPs (removes expired ones first)."""
+def db_get_blocked_ips(site_id: str = None) -> list[str]:
+    """Return blocked IPs globally or for a single site."""
     with get_db() as conn:
-        conn.execute("DELETE FROM blocked_ips WHERE block_type = 'temporary' AND expires_at < ?", (time.time(),))
-        rows = conn.execute("SELECT ip FROM blocked_ips ORDER BY blocked_at DESC").fetchall()
+        conn.execute(
+            "DELETE FROM site_blocked_ips WHERE block_type = 'temporary' AND expires_at < ?",
+            (time.time(),),
+        )
+        if site_id:
+            rows = conn.execute(
+                "SELECT ip FROM site_blocked_ips WHERE site_id = ? ORDER BY blocked_at DESC",
+                (site_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT ip FROM site_blocked_ips ORDER BY ip"
+            ).fetchall()
     return [r["ip"] for r in rows]
 
 
@@ -210,16 +291,22 @@ def db_get_blocked_ips() -> list[str]:
 # Attack History (for adaptive security)
 # ---------------------------------------------------------------------------
 
-def db_add_history(ip: str, attack: str):
+def db_add_history(ip: str, attack: str, site_id: str = "local"):
     """Record an attack in the per-IP history."""
     with get_db() as conn:
-        conn.execute("INSERT INTO attack_history (ip, attack) VALUES (?, ?)", (ip, attack))
+        conn.execute(
+            "INSERT INTO attack_history (ip, attack, site_id) VALUES (?, ?, ?)",
+            (ip, attack, site_id),
+        )
 
 
-def db_get_history_count(ip: str) -> int:
-    """Return how many attacks this IP has triggered."""
+def db_get_history_count(ip: str, site_id: str = "local") -> int:
+    """Return how many attacks this IP has triggered for a given site."""
     with get_db() as conn:
-        return conn.execute("SELECT COUNT(*) FROM attack_history WHERE ip = ?", (ip,)).fetchone()[0]
+        return conn.execute(
+            "SELECT COUNT(*) FROM attack_history WHERE ip = ? AND site_id = ?",
+            (ip, site_id),
+        ).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
@@ -280,11 +367,12 @@ def db_validate_api_key(site_id: str, api_key: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def seed_demo_data():
-    """Populate the database with realistic demo events if it's empty."""
+    """Populate the database with realistic demo sites, users, and events."""
+    _seed_demo_sites()
+    _seed_demo_users()
+
     if db_get_total_events() > 0:
-        print("[DB] Database already has data — skipping seed.")
-        # Seed demo sites if missing
-        _seed_demo_sites()
+        print("[DB] Database already has data — skipping event seed.")
         return
 
     import random as rng
@@ -330,9 +418,10 @@ def seed_demo_data():
         ip      = rng.choice(SEED_IPS)
         ts      = (now - __import__("datetime").timedelta(seconds=(len(SEED_EVENTS) - i) * 12)).isoformat() + "Z"
         cidx    = rng.randrange(len(SEED_COUNTRIES))
+        site_id = rng.choice(SEED_SITES)
         db_log_attack(
             ip, atk, sev, ts,
-            site_id    = rng.choice(SEED_SITES),
+            site_id    = site_id,
             user_agent = rng.choice(SEED_UAS),
             method     = rng.choice(SEED_METHODS),
             path       = rng.choice(SEED_PATHS),
@@ -342,12 +431,11 @@ def seed_demo_data():
             asn        = rng.choice(SEED_ASNS),
             bytes_in   = rng.randint(64, 65535),
         )
-        db_add_history(ip, atk)
+        db_add_history(ip, atk, site_id=site_id)
         if sev in ("Critical", "High"):
-            db_block_ip(ip, sev)
+            db_block_ip(ip, sev, site_id=site_id)
 
     print(f"[DB] Seeded {len(SEED_EVENTS)} demo events.")
-    _seed_demo_sites()
 
 
 def _seed_demo_sites():
@@ -360,6 +448,51 @@ def _seed_demo_sites():
     db_register_site("finance-dept",  "Finance Department",   "https://finance.example.in")
     db_register_site("local",         "Local SOC Backend",    "http://127.0.0.1:5000")
     print("[DB] Seeded 3 demo monitored sites.")
+
+
+def _seed_demo_users():
+    """Create demo accounts for quick local testing if they do not exist."""
+    demo_users = [
+        {
+            "name": "SOC Admin",
+            "email": "admin@soc.local",
+            "password": "Admin@123",
+            "role": "admin",
+            "site_id": None,
+        },
+        {
+            "name": "Gov Portal Analyst",
+            "email": "analyst@gov.local",
+            "password": "Analyst@123",
+            "role": "analyst",
+            "site_id": "gov-portal",
+        },
+        {
+            "name": "Finance Analyst",
+            "email": "analyst@finance.local",
+            "password": "Analyst@123",
+            "role": "analyst",
+            "site_id": "finance-dept",
+        },
+    ]
+
+    created = 0
+    for user in demo_users:
+        if db_get_user_by_email(user["email"]):
+            continue
+        password_hash = bcrypt.hashpw(user["password"].encode(), bcrypt.gensalt()).decode()
+        user_id = db_create_user(
+            user["name"],
+            user["email"],
+            password_hash,
+            role=user["role"],
+            site_id=user["site_id"],
+        )
+        if user_id:
+            created += 1
+
+    if created:
+        print(f"[DB] Seeded {created} demo user account(s).")
 
 
 # ---------------------------------------------------------------------------
@@ -397,4 +530,17 @@ def db_get_user_by_id(user_id: int) -> dict | None:
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def db_update_user_site(user_id: int, site_id: str | None) -> bool:
+    """Update the site_id for a user (link or unlink). Returns True on success."""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET site_id = ? WHERE id = ?",
+                (site_id, user_id),
+            )
+        return True
+    except Exception:
+        return False
 

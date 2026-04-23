@@ -66,6 +66,28 @@
     .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
     .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
 
+    /* ---- Demo helper ---- */
+    .demo-box{
+      margin-bottom:16px;padding:12px 14px;
+      background:rgba(0,229,255,0.06);
+      border:1px solid rgba(0,229,255,0.18);
+      border-radius:10px;
+      color:#bfefff;
+      font-size:0.78rem;
+      line-height:1.5;
+    }
+    .demo-box strong{color:var(--neon-cyan);}
+    .demo-box code{
+      display:inline-block;
+      margin:2px 4px 2px 0;
+      padding:2px 6px;
+      border-radius:6px;
+      background:rgba(255,255,255,0.06);
+      color:#fff;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+      font-size:0.74rem;
+    }
+
     /* ---- Form ---- */
     .form-group{margin-bottom:16px;position:relative;}
     label{display:block;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--sub);margin-bottom:6px;}
@@ -135,6 +157,12 @@
         <div class="flash {{ cat }}">{{ msg }}</div>
       {% endfor %}
     {% endwith %}
+
+    <div class="demo-box">
+      <div><strong>Demo mode:</strong> Run <code>app.py</code> and <code>simulate.py</code> together for live attack activity.</div>
+      <div style="margin-top:6px;"><strong>Admin:</strong> <code>admin@soc.local</code> / <code>Admin@123</code></div>
+      <div><strong>Analyst:</strong> <code>analyst@gov.local</code> / <code>Analyst@123</code></div>
+    </div>
 
     <form method="POST" action="/auth/login">
       <div class="form-group">

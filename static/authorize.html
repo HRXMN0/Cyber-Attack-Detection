@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Authorization — AI Cyber SOC</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{--neon:#00e5ff;--green:#00ff88;--red:#ff1744;--bg:#060b18;--panel:rgba(8,18,38,0.9);--border:rgba(0,229,255,0.18);}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:#e8eaf6;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:24px;}
+    /* Grid bg */
+    body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);background-size:44px 44px;animation:gridScroll 25s linear infinite;}
+    @keyframes gridScroll{to{background-position:44px 44px;}}
+    /* Orbs */
+    .orb{position:fixed;border-radius:50%;filter:blur(90px);opacity:.15;animation:float 9s ease-in-out infinite;z-index:0;}
+    .orb1{width:500px;height:500px;background:radial-gradient(circle,#00e5ff,transparent);top:-150px;left:-150px;}
+    .orb2{width:400px;height:400px;background:radial-gradient(circle,#7c4dff,transparent);bottom:-100px;right:-100px;animation-delay:-4s;}
+    .orb3{width:300px;height:300px;background:radial-gradient(circle,#00ff88,transparent);top:50%;right:20%;animation-delay:-7s;opacity:.08;}
+    @keyframes float{0%,100%{transform:translateY(0) scale(1);}50%{transform:translateY(-40px) scale(1.05);}}
+    /* Card */
+    .card{position:relative;z-index:10;width:100%;max-width:500px;background:var(--panel);border:1px solid var(--border);border-radius:22px;padding:44px 42px;backdrop-filter:blur(24px);box-shadow:0 0 80px rgba(0,229,255,0.06),0 40px 80px rgba(0,0,0,0.6);animation:cardIn .5s cubic-bezier(.22,1,.36,1);}
+    @keyframes cardIn{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+    /* Scan line effect */
+    .card::before{content:'';position:absolute;inset:0;border-radius:22px;background:linear-gradient(180deg,rgba(0,229,255,0.03) 0%,transparent 50%,rgba(0,229,255,0.01) 100%);pointer-events:none;}
+    /* Step indicator */
+    .steps{display:flex;align-items:center;gap:0;margin-bottom:32px;}
+    .step-dot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(0,229,255,0.3);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#8892b0;flex-shrink:0;}
+    .step-dot.done{background:rgba(0,255,136,0.2);border-color:#00ff88;color:#00ff88;}
+    .step-dot.active{background:rgba(0,229,255,0.2);border-color:var(--neon);color:var(--neon);}
+    .step-line{flex:1;height:1px;background:rgba(255,255,255,0.08);}
+    .step-line.done{background:rgba(0,255,136,0.3);}
+    /* Header */
+    .shield{width:60px;height:60px;background:linear-gradient(135deg,rgba(0,229,255,0.15),rgba(0,229,255,0.3));border:1.5px solid rgba(0,229,255,0.4);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;margin-bottom:20px;box-shadow:0 0 30px rgba(0,229,255,0.2);animation:shieldPulse 3s ease-in-out infinite;}
+    @keyframes shieldPulse{0%,100%{box-shadow:0 0 30px rgba(0,229,255,0.2);}50%{box-shadow:0 0 50px rgba(0,229,255,0.4);}}
+    h1{font-family:'Orbitron',sans-serif;font-size:1.45rem;font-weight:800;letter-spacing:1px;margin-bottom:6px;background:linear-gradient(135deg,#fff,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .subtitle{color:#8892b0;font-size:0.84rem;margin-bottom:8px;line-height:1.5;}
+    /* Info box */
+    .info-box{background:rgba(0,229,255,0.06);border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:12px 16px;margin-bottom:26px;font-size:0.78rem;color:#8892b0;line-height:1.6;}
+    .info-box strong{color:var(--neon);}
+    /* Flash messages */
+    .flash{padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:16px;font-weight:500;}
+    .flash.error{background:rgba(255,23,68,0.12);border:1px solid rgba(255,23,68,0.3);color:#ff5252;}
+    .flash.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;}
+    /* Form */
+    .form-group{margin-bottom:16px;}
+    label{display:block;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8892b0;margin-bottom:7px;}
+    .input-wrap{position:relative;}
+    input[type=text]{width:100%;padding:12px 44px 12px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#e8eaf6;font-family:'Share Tech Mono',monospace;font-size:0.88rem;transition:.2s;outline:none;}
+    input[type=text]:focus{border-color:var(--neon);box-shadow:0 0 0 3px rgba(0,229,255,0.1);background:rgba(0,229,255,0.03);}
+    input[type=text]::placeholder{color:#3a4a5a;font-size:0.82rem;}
+    /* Paste button */
+    .paste-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:rgba(0,229,255,0.1);border-radius:6px;color:var(--neon);cursor:pointer;padding:4px 8px;font-size:0.65rem;font-weight:700;transition:.15s;letter-spacing:.5px;}
+    .paste-btn:hover{background:rgba(0,229,255,0.22);}
+    /* Status indicator */
+    .field-status{font-size:0.7rem;margin-top:5px;height:14px;transition:.2s;}
+    .field-status.ok{color:#00ff88;}
+    .field-status.err{color:#ff5252;}
+    /* Verify button */
+    .btn-verify{width:100%;padding:14px;margin-top:6px;background:linear-gradient(135deg,#00b4d8,#00e5ff);border:none;border-radius:10px;color:#060b18;font-weight:800;font-size:0.95rem;font-family:'Inter',sans-serif;cursor:pointer;transition:.25s;letter-spacing:.5px;position:relative;overflow:hidden;}
+    .btn-verify::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);transform:translateX(-100%);transition:.4s;}
+    .btn-verify:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,229,255,0.4);}
+    .btn-verify:hover::after{transform:translateX(100%);}
+    .btn-verify:active{transform:none;}
+    /* Divider */
+    .divider{display:flex;align-items:center;gap:12px;margin:20px 0;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.07);}
+    .divider span{font-size:0.72rem;color:#4a5568;}
+    /* Skip link */
+    .skip-link{display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;color:#8892b0;font-size:0.82rem;padding:10px;border:1px solid rgba(255,255,255,0.07);border-radius:10px;transition:.2s;}
+    .skip-link:hover{background:rgba(255,255,255,0.04);color:#e8eaf6;}
+    /* Badge */
+    .badge{display:inline-flex;align-items:center;gap:5px;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:99px;padding:3px 10px;font-size:0.68rem;color:#00ff88;font-weight:600;}
+  </style>
+</head>
+<body>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <div class="card">
+    <!-- Step progress -->
+    <div class="steps">
+      <div class="step-dot done">✓</div>
+      <div class="step-line done"></div>
+      <div class="step-dot active">2</div>
+      <div class="step-line"></div>
+      <div class="step-dot">3</div>
+    </div>
+
+    <div class="shield">🔐</div>
+    <h1>Authorization</h1>
+    <div class="subtitle">Link your account to your organisation's monitored site to access your dedicated security feed.</div>
+
+    <div class="info-box">
+      Get your <strong>Site ID</strong> &amp; <strong>API Key</strong> from the <strong>Deploy Agent</strong> tab on the SOC dashboard.<br/>
+      These credentials are unique to your site and ensure <strong>complete data isolation</strong> — you will only see your organisation's traffic.
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="/auth/authorize" id="authForm">
+      <div class="form-group">
+        <label>Site ID</label>
+        <div class="input-wrap">
+          <input type="text" name="site_id" id="siteId" placeholder="e.g. gov-portal" autocomplete="off" oninput="validateFields()"/>
+          <button type="button" class="paste-btn" onclick="pasteField('siteId')">PASTE</button>
+        </div>
+        <div class="field-status" id="siteStatus"></div>
+      </div>
+      <div class="form-group">
+        <label>API Key</label>
+        <div class="input-wrap">
+          <input type="text" name="api_key" id="apiKey" placeholder="Paste your 32-character API key" autocomplete="off" oninput="validateFields()"/>
+          <button type="button" class="paste-btn" onclick="pasteField('apiKey')">PASTE</button>
+        </div>
+        <div class="field-status" id="apiStatus"></div>
+      </div>
+      <button type="submit" class="btn-verify" id="verifyBtn" disabled>🔒 Verify &amp; Authorize</button>
+    </form>
+
+    <div class="divider"><span>or</span></div>
+
+    <a href="/auth/skip-authorize" class="skip-link">
+      <span>👤</span> I'm a SOC Admin — Skip &amp; access all sites
+    </a>
+  </div>
+
+  <script>
+    function validateFields() {
+      const site = document.getElementById('siteId').value.trim();
+      const key  = document.getElementById('apiKey').value.trim();
+      const btn  = document.getElementById('verifyBtn');
+      const ss   = document.getElementById('siteStatus');
+      const as   = document.getElementById('apiStatus');
+
+      // Site ID: lowercase, alphanumeric + dashes
+      const siteOk = /^[a-z0-9-]{3,}$/.test(site);
+      ss.textContent = site ? (siteOk ? '✓ Valid format' : '✗ Use lowercase letters, numbers and dashes') : '';
+      ss.className   = 'field-status ' + (site ? (siteOk ? 'ok' : 'err') : '');
+
+      // API key: non-empty, at least 16 chars
+      const keyOk = key.length >= 16;
+      as.textContent = key ? (keyOk ? '✓ Valid format' : '✗ Key too short') : '';
+      as.className   = 'field-status ' + (key ? (keyOk ? 'ok' : 'err') : '');
+
+      btn.disabled = !(siteOk && keyOk);
+    }
+
+    async function pasteField(id) {
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById(id).value = text.trim();
+        validateFields();
+      } catch(e) {}
+    }
+  </script>
+</body>
+</html>
