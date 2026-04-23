@@ -9,19 +9,79 @@ import time
 import secrets
 from datetime import datetime
 from contextlib import contextmanager
-
 import bcrypt
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cyber_attacks.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
+try:
+    import psycopg2
+    from psycopg2.extras import DictCursor
+except ImportError:
+    psycopg2 = None
+
+class DBConnection:
+    def __init__(self):
+        self.is_postgres = bool(DATABASE_URL)
+        if self.is_postgres:
+            if psycopg2 is None:
+                raise RuntimeError("psycopg2 is not installed but DATABASE_URL is set.")
+            self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=DictCursor)
+        else:
+            self.conn = sqlite3.connect(DB_PATH)
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA foreign_keys=ON")
+
+    def execute(self, query, params=()):
+        if self.is_postgres:
+            query = query.replace('?', '%s')
+            if 'INSERT OR IGNORE INTO sites' in query:
+                query = query.replace('INSERT OR IGNORE', 'INSERT')
+                query += ' ON CONFLICT (api_key) DO NOTHING'
+            elif 'INSERT OR IGNORE' in query:
+                query = query.replace('INSERT OR IGNORE', 'INSERT')
+                query += ' ON CONFLICT DO NOTHING'
+            elif "datetime('now')" in query:
+                query = query.replace("datetime('now')", "CURRENT_TIMESTAMP")
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        return cursor
+
+    def executescript(self, script):
+        cursor = self.conn.cursor()
+        if self.is_postgres:
+            cursor.execute(script)
+        else:
+            self.conn.executescript(script)
+        return cursor
+
+    def insert_returning_id(self, query, params=()):
+        if self.is_postgres:
+            query = query.replace('?', '%s')
+            query += " RETURNING id"
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            res = cursor.fetchone()
+            return res['id'] if res else None
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            return cursor.lastrowid
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.conn.close()
 
 @contextmanager
 def get_db():
     """Thread-safe database connection context manager."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    conn = DBConnection()
     try:
         yield conn
         conn.commit()
@@ -35,107 +95,185 @@ def get_db():
 def init_db():
     """Create tables if they don't exist; migrate existing tables if needed."""
     with get_db() as conn:
-        # Step 1: Core tables (no site_id index yet)
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS attack_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip          TEXT NOT NULL,
-                attack      TEXT NOT NULL,
-                severity    TEXT NOT NULL,
-                timestamp   TEXT NOT NULL,
-                created_at  REAL DEFAULT (strftime('%s','now'))
-            );
-            CREATE TABLE IF NOT EXISTS blocked_ips (
-                ip          TEXT PRIMARY KEY,
-                reason      TEXT NOT NULL DEFAULT 'auto',
-                block_type  TEXT NOT NULL DEFAULT 'permanent',
-                expires_at  REAL,
-                blocked_at  TEXT DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS site_blocked_ips (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip          TEXT NOT NULL,
-                site_id     TEXT NOT NULL DEFAULT 'local',
-                reason      TEXT NOT NULL DEFAULT 'auto',
-                block_type  TEXT NOT NULL DEFAULT 'permanent',
-                expires_at  REAL,
-                blocked_at  TEXT DEFAULT (datetime('now')),
-                UNIQUE(ip, site_id)
-            );
-            CREATE TABLE IF NOT EXISTS attack_history (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip          TEXT NOT NULL,
-                attack      TEXT NOT NULL,
-                recorded_at TEXT DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS failed_attempts (
-                ip          TEXT PRIMARY KEY,
-                count       INTEGER NOT NULL DEFAULT 0,
-                last_attempt TEXT DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS sites (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                url         TEXT NOT NULL,
-                api_key     TEXT NOT NULL UNIQUE,
-                created_at  TEXT DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS users (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT NOT NULL,
-                email        TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                role         TEXT NOT NULL DEFAULT 'analyst',
-                site_id      TEXT REFERENCES sites(id),
-                created_at   TEXT DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_log_ip       ON attack_log(ip);
-            CREATE INDEX IF NOT EXISTS idx_log_severity ON attack_log(severity);
-            CREATE INDEX IF NOT EXISTS idx_history_ip   ON attack_history(ip);
-            CREATE INDEX IF NOT EXISTS idx_site_block_site ON site_blocked_ips(site_id);
-            CREATE INDEX IF NOT EXISTS idx_site_block_ip   ON site_blocked_ips(ip);
-        """)
+        if conn.is_postgres:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS sites (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    url         TEXT NOT NULL,
+                    api_key     TEXT NOT NULL UNIQUE,
+                    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
 
-        # Step 2: Migrate — add new columns if not present
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_log)").fetchall()]
-        for col, col_type, default in [
-            ("site_id",    "TEXT",    "'local'"),
-            ("user_agent", "TEXT",    "NULL"),
-            ("method",     "TEXT",    "NULL"),
-            ("path",       "TEXT",    "NULL"),
-            ("referer",    "TEXT",    "NULL"),
-            ("country",    "TEXT",    "NULL"),
-            ("city",       "TEXT",    "NULL"),
-            ("asn",        "TEXT",    "NULL"),
-            ("bytes_in",   "INTEGER", "0"),
-        ]:
-            if col not in cols:
+                CREATE TABLE IF NOT EXISTS attack_log (
+                    id          SERIAL PRIMARY KEY,
+                    ip          TEXT NOT NULL,
+                    attack      TEXT NOT NULL,
+                    severity    TEXT NOT NULL,
+                    timestamp   TEXT NOT NULL,
+                    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    site_id     TEXT DEFAULT 'local',
+                    user_agent  TEXT,
+                    method      TEXT,
+                    path        TEXT,
+                    referer     TEXT,
+                    country     TEXT,
+                    city        TEXT,
+                    asn         TEXT,
+                    bytes_in    INTEGER DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_log_ip ON attack_log(ip);
+                CREATE INDEX IF NOT EXISTS idx_log_severity ON attack_log(severity);
+                CREATE INDEX IF NOT EXISTS idx_log_site ON attack_log(site_id);
+
+                CREATE TABLE IF NOT EXISTS blocked_ips (
+                    ip          TEXT PRIMARY KEY,
+                    reason      TEXT NOT NULL DEFAULT 'auto',
+                    block_type  TEXT NOT NULL DEFAULT 'permanent',
+                    expires_at  DOUBLE PRECISION,
+                    blocked_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS site_blocked_ips (
+                    id          SERIAL PRIMARY KEY,
+                    ip          TEXT NOT NULL,
+                    site_id     TEXT NOT NULL DEFAULT 'local',
+                    reason      TEXT NOT NULL DEFAULT 'auto',
+                    block_type  TEXT NOT NULL DEFAULT 'permanent',
+                    expires_at  DOUBLE PRECISION,
+                    blocked_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(ip, site_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_site_block_site ON site_blocked_ips(site_id);
+                CREATE INDEX IF NOT EXISTS idx_site_block_ip ON site_blocked_ips(ip);
+
+                CREATE TABLE IF NOT EXISTS attack_history (
+                    id          SERIAL PRIMARY KEY,
+                    ip          TEXT NOT NULL,
+                    attack      TEXT NOT NULL,
+                    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    site_id     TEXT DEFAULT 'local'
+                );
+                CREATE INDEX IF NOT EXISTS idx_history_ip ON attack_history(ip);
+
+                CREATE TABLE IF NOT EXISTS failed_attempts (
+                    ip          TEXT PRIMARY KEY,
+                    count       INTEGER NOT NULL DEFAULT 0,
+                    last_attempt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS users (
+                    id            SERIAL PRIMARY KEY,
+                    name          TEXT NOT NULL,
+                    email         TEXT NOT NULL UNIQUE,
+                    password_hash TEXT,
+                    role          TEXT NOT NULL DEFAULT 'analyst',
+                    site_id       TEXT REFERENCES sites(id) ON DELETE SET NULL,
+                    created_at    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        else:
+            # Step 1: Core tables (no site_id index yet)
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS attack_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ip          TEXT NOT NULL,
+                    attack      TEXT NOT NULL,
+                    severity    TEXT NOT NULL,
+                    timestamp   TEXT NOT NULL,
+                    created_at  REAL DEFAULT (strftime('%s','now'))
+                );
+                CREATE TABLE IF NOT EXISTS blocked_ips (
+                    ip          TEXT PRIMARY KEY,
+                    reason      TEXT NOT NULL DEFAULT 'auto',
+                    block_type  TEXT NOT NULL DEFAULT 'permanent',
+                    expires_at  REAL,
+                    blocked_at  TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS site_blocked_ips (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ip          TEXT NOT NULL,
+                    site_id     TEXT NOT NULL DEFAULT 'local',
+                    reason      TEXT NOT NULL DEFAULT 'auto',
+                    block_type  TEXT NOT NULL DEFAULT 'permanent',
+                    expires_at  REAL,
+                    blocked_at  TEXT DEFAULT (datetime('now')),
+                    UNIQUE(ip, site_id)
+                );
+                CREATE TABLE IF NOT EXISTS attack_history (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ip          TEXT NOT NULL,
+                    attack      TEXT NOT NULL,
+                    recorded_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS failed_attempts (
+                    ip          TEXT PRIMARY KEY,
+                    count       INTEGER NOT NULL DEFAULT 0,
+                    last_attempt TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS sites (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    url         TEXT NOT NULL,
+                    api_key     TEXT NOT NULL UNIQUE,
+                    created_at  TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS users (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name         TEXT NOT NULL,
+                    email        TEXT NOT NULL UNIQUE,
+                    password_hash TEXT,
+                    role         TEXT NOT NULL DEFAULT 'analyst',
+                    site_id      TEXT REFERENCES sites(id),
+                    created_at   TEXT DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_log_ip       ON attack_log(ip);
+                CREATE INDEX IF NOT EXISTS idx_log_severity ON attack_log(severity);
+                CREATE INDEX IF NOT EXISTS idx_history_ip   ON attack_history(ip);
+                CREATE INDEX IF NOT EXISTS idx_site_block_site ON site_blocked_ips(site_id);
+                CREATE INDEX IF NOT EXISTS idx_site_block_ip   ON site_blocked_ips(ip);
+            """)
+
+            # Step 2: Migrate — add new columns if not present
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_log)").fetchall()]
+            for col, col_type, default in [
+                ("site_id",    "TEXT",    "'local'"),
+                ("user_agent", "TEXT",    "NULL"),
+                ("method",     "TEXT",    "NULL"),
+                ("path",       "TEXT",    "NULL"),
+                ("referer",    "TEXT",    "NULL"),
+                ("country",    "TEXT",    "NULL"),
+                ("city",       "TEXT",    "NULL"),
+                ("asn",        "TEXT",    "NULL"),
+                ("bytes_in",   "INTEGER", "0"),
+            ]:
+                if col not in cols:
+                    conn.execute(
+                        f"ALTER TABLE attack_log ADD COLUMN {col} {col_type} DEFAULT {default}"
+                    )
+
+            # Step 3: Migrate users table — add site_id if missing
+            user_cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+            if "site_id" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN site_id TEXT REFERENCES sites(id)")
+
+            # Step 4: Migrate attack history to be site-aware
+            history_cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_history)").fetchall()]
+            if "site_id" not in history_cols:
+                conn.execute("ALTER TABLE attack_history ADD COLUMN site_id TEXT DEFAULT 'local'")
                 conn.execute(
-                    f"ALTER TABLE attack_log ADD COLUMN {col} {col_type} DEFAULT {default}"
+                    "UPDATE attack_history SET site_id = 'local' WHERE site_id IS NULL OR site_id = ''"
                 )
 
-        # Step 3: Migrate users table — add site_id if missing
-        user_cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
-        if "site_id" not in user_cols:
-            conn.execute("ALTER TABLE users ADD COLUMN site_id TEXT REFERENCES sites(id)")
+            # Step 5: Backfill tenant-scoped blocks from the legacy table if needed
+            _migrate_legacy_blocks(conn)
 
-        # Step 4: Migrate attack history to be site-aware
-        history_cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_history)").fetchall()]
-        if "site_id" not in history_cols:
-            conn.execute("ALTER TABLE attack_history ADD COLUMN site_id TEXT DEFAULT 'local'")
+            # Step 6: Now safe to create site_id index
             conn.execute(
-                "UPDATE attack_history SET site_id = 'local' WHERE site_id IS NULL OR site_id = ''"
+                "CREATE INDEX IF NOT EXISTS idx_log_site ON attack_log(site_id)"
             )
 
-        # Step 5: Backfill tenant-scoped blocks from the legacy table if needed
-        _migrate_legacy_blocks(conn)
-
-        # Step 6: Now safe to create site_id index
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_log_site ON attack_log(site_id)"
-        )
-
-    print(f"[DB] Database initialized at {DB_PATH}")
+    print(f"[DB] Database initialized at {DB_PATH if not os.getenv('DATABASE_URL') else 'PostgreSQL'}")
 
 
 
@@ -507,11 +645,11 @@ def db_create_user(name: str, email: str, password_hash: str, role: str = "analy
     """Create a new user. Returns new user id, or None if email exists."""
     try:
         with get_db() as conn:
-            cursor = conn.execute(
+            user_id = conn.insert_returning_id(
                 "INSERT INTO users (name, email, password_hash, role, site_id) VALUES (?, ?, ?, ?, ?)",
                 (name, email, password_hash, role, site_id),
             )
-            return cursor.lastrowid
+            return user_id
     except Exception:
         return None
 
