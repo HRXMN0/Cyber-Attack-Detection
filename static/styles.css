@@ -300,11 +300,18 @@ body {
   padding: 8px 6px; font-family: var(--mono); font-size: .56rem; color: var(--dimtext);
   border-bottom: 2px solid var(--border); text-transform: uppercase; letter-spacing: 1px;
 }
+.attack-table:not(.detailed) th:nth-child(1) { width: 55px; }
+.attack-table:not(.detailed) th:nth-child(2) { width: 90px; }
+.attack-table:not(.detailed) th:nth-child(3) { width: 60px; }
+.attack-table:not(.detailed) th:nth-child(4) { width: 55px; }
+.attack-table:not(.detailed) th:nth-child(5) { width: 60px; }
+
 .attack-table tbody tr { border-bottom: 1px solid rgba(255,255,255,.03); transition: background .2s; }
 .attack-table tbody tr:hover { background: rgba(79,70,229,.04); }
 .attack-table tbody tr.new-row { animation: rowFlash .6s ease; }
 @keyframes rowFlash { 0%{background: rgba(79,70,229,.15)} 100%{background: transparent} }
-.attack-table td { padding: 5px 6px; color: var(--subtext); white-space: nowrap; }
+.attack-table td { padding: 5px 6px; color: var(--subtext); white-space: nowrap; font-size: .62rem; }
+.attack-table td:nth-child(2) { color: var(--neon); font-family: var(--mono); font-size: .64rem; overflow: hidden; text-overflow: ellipsis; }
 .attack-table td:nth-child(3) { color: var(--text); }
 .empty-row { text-align: center; color: var(--dimtext); padding: 24px; font-size: .72rem; }
 
