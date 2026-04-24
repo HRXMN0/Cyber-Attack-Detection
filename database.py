@@ -524,19 +524,25 @@ def seed_demo_data():
         "45.155.205.39", "141.98.11.70", "178.128.23.9", "64.62.197.152",
     ]
     SEED_EVENTS = [
-        ("normal", "None"), ("normal", "None"), ("normal", "None"),
-        ("normal", "None"), ("normal", "None"),
-        ("portsweep", "Medium"), ("nmap", "Medium"), ("ipsweep", "Medium"),
-        ("satan", "Medium"), ("neptune", "Critical"), ("neptune", "Critical"),
-        ("smurf", "Critical"), ("back", "High"), ("teardrop", "High"),
-        ("guess_passwd", "High"), ("ftp_write", "High"),
-        ("buffer_overflow", "Critical"), ("rootkit", "Critical"),
-        ("bruteforce", "Critical"), ("warezclient", "Medium"),
-        ("warezmaster", "High"), ("phf", "Medium"), ("normal", "None"),
-        ("pod", "High"), ("land", "High"), ("mscan", "Medium"),
-        ("saint", "Medium"), ("snmpguess", "High"), ("httptunnel", "High"),
-        ("normal", "None"),
+        ("Normal", "None"), ("Normal", "None"), ("Normal", "None"), ("Normal", "None"),
+        ("DDOS Flood", "Critical"), ("SQL Injection", "Critical"), ("Cross-Site Scripting", "High"),
+        ("Brute Force", "High"), ("Port Scan", "Medium"), ("Botnet Command", "Critical"),
+        ("Infiltration", "High"), ("Web Attack", "Medium"), ("Credential Stuffing", "High"),
+        ("Exploit Attempt", "Critical"), ("Zero-Day Trace", "Critical"), ("Malformed Packet", "Low"),
+        ("SSH Brute Force", "High"), ("Directory Traversal", "High"), ("Remote Code Execution", "Critical"),
+        ("Network Mapper", "Medium"), ("IP Sweep", "Low"), ("Botnet C2", "Critical"),
+        ("DDoS Reflection", "Critical"), ("Data Exfiltration", "High"), ("Backdoor Entry", "Critical"),
+        ("Malware Sync", "High"), ("Cryptojacker", "Medium"), ("Protocol Violation", "Low"),
+        ("Buffer Overflow", "Critical"), ("Session Hijacking", "High"), ("CSRF Attack", "Medium"),
+        ("Normal", "None"), ("Normal", "None"), ("Normal", "None"), ("Normal", "None"),
+        ("DNS Spoofing", "High"), ("Phishing Redirect", "Medium"), ("APSF Trace", "Medium"),
+        ("Metasploit Scan", "Medium"), ("Cobalt Strike Beacon", "Critical"), ("RANSOMWARE Trace", "Critical"),
+        ("Normal", "None"), ("Normal", "None"), ("Normal", "None"), ("Normal", "None"), ("Normal", "None")
     ]
+    
+    # Duplicate some to create a heavy initial database state
+    SEED_EVENTS = SEED_EVENTS * 3 
+
 
     SEED_PATHS = ["/", "/login", "/admin", "/api/data", "/wp-admin", "/.env", "/admin/login",
                   "/static/app.js", "/api/users", "/phpmyadmin"]

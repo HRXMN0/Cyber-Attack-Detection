@@ -436,6 +436,13 @@ def intelligence():
     return send_from_directory(STATIC_DIR, "threat-intel.html")
 
 
+@app.route("/encyclopedia", methods=["GET"])
+@login_required
+def encyclopedia():
+    """Serve the cyber threat knowledge base."""
+    return send_from_directory(STATIC_DIR, "encyclopedia.html")
+
+
 @app.route("/api/intelligence/logs", methods=["GET"])
 @login_required
 def api_intelligence_logs():

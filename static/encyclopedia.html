@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cyber Threat Encyclopedia | AI Cyber SOC</title>
+  <link rel="stylesheet" href="/static/styles.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    .kb-container { padding: 40px 30px; max-width: 1200px; margin: 0 auto; }
+    .kb-header { margin-bottom: 40px; text-align: center; }
+    .kb-title { font-family: var(--display); font-size: 1.8rem; font-weight: 800; color: var(--text); letter-spacing: 2px; text-transform: uppercase; }
+    .kb-title span { color: var(--neon); }
+    .kb-sub { color: var(--subtext); font-size: .85rem; margin-top: 10px; }
+
+    .kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 24px; }
+    .kb-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 24px; transition: .3s; position: relative; overflow: hidden; }
+    .kb-card:hover { border-color: var(--neon); transform: translateY(-4px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    
+    .kb-card::before { content: ''; position: absolute; top:0; left:0; width:4px; height:100%; background: var(--border); transition: .3s; }
+    .kb-card.critical::before { background: var(--red); }
+    .kb-card.high::before { background: var(--orange); }
+    .kb-card.medium::before { background: var(--yellow); }
+
+    .kb-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+    .kb-atk-name { font-family: var(--display); font-size: 1.1rem; font-weight: 700; color: var(--text); }
+    .kb-risk { font-family: var(--mono); font-size: .6rem; padding: 3px 8px; border-radius: 4px; font-weight: 700; letter-spacing: 1px; }
+    .risk-critical { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .risk-high { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+    .risk-medium { background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
+
+    .kb-desc { color: var(--subtext); font-size: .8rem; line-height: 1.6; margin-bottom: 20px; }
+    
+    .kb-section { margin-bottom: 12px; }
+    .kb-sect-title { font-family: var(--mono); font-size: .55rem; color: var(--dimtext); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; }
+    .kb-sect-val { font-size: .75rem; color: var(--text); }
+
+    .kb-action-title { color: var(--green); }
+  </style>
+</head>
+<body style="display: block; overflow-y: auto;">
+  <header class="soc-header">
+    <div class="header-brand">
+      <div class="brand-icon">🛡️</div>
+      <div>
+        <div class="brand-title">AI CYBER SOC</div>
+        <div class="brand-sub">SECURITY OPERATIONS CENTER &nbsp;·&nbsp; CLASSIFIED</div>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-item">Dashboard</a>
+      <a href="/intelligence" class="nav-item">Threat Intel</a>
+      <a href="/encyclopedia" class="nav-item active">Library</a>
+      <a href="/embed" class="nav-item">Site Monitor</a>
+    </nav>
+    <div class="header-right">
+      <a href="/auth/logout" class="logout-btn" title="Logout">⏻</a>
+    </div>
+  </header>
+
+  <div class="kb-container">
+    <div class="kb-header">
+      <div class="kb-title">CYBER THREAT <span>LIBRARY</span></div>
+      <div class="kb-sub">Understand the digital threats our AI is guarding you against.</div>
+    </div>
+
+    <div class="kb-grid">
+      <!-- SQL Injection -->
+      <div class="kb-card critical">
+        <div class="kb-card-header">
+          <div class="kb-atk-name">SQL Injection (SQLi)</div>
+          <span class="kb-risk risk-critical">CRITICAL RISK</span>
+        </div>
+        <div class="kb-desc">A nightmare scenario where hackers "talk" directly to your database. They inject malicious commands into your website forms to trick the database into handing over private data.</div>
+        <div class="kb-section">
+          <div class="kb-sect-title">Danger Level</div>
+          <div class="kb-sect-val">Can lead to total data theft of all user emails, passwords, and sensitive records.</div>
+        </div>
+        <div class="kb-section">
+          <div class="kb-sect-title">AI Response</div>
+          <div class="kb-sect-val kb-action-title">Instant IP Quarantine and Payload Scrubbing.</div>
+        </div>
+      </div>
+
+      <!-- DDoS -->
+      <div class="kb-card critical">
+        <div class="kb-card-header">
+          <div class="kb-atk-name">DDoS / Denial of Service</div>
+          <span class="kb-risk risk-critical">CRITICAL RISK</span>
+        </div>
+        <div class="kb-desc">Imagine a million people trying to enter your shop at the same second. Your server can't handle the load and crashes, making your website unreachable for real customers.</div>
+        <div class="kb-section">
+          <div class="kb-sect-title">Danger Level</div>
+          <div class="kb-sect-val">Causes total business shutdown and loss of revenue while the attack lasts.</div>
+        </div>
+        <div class="kb-section">
+          <div class="kb-sect-title">AI Response</div>
+          <div class="kb-sect-val kb-action-title">Dynamic Traffic Filtering and Rate-Limiting.</div>
+        </div>
+      </div>
+
+      <!-- Botnets -->
+      <div class="kb-card critical">
+        <div class="kb-card-header">
+          <div class="kb-atk-name">Botnet Activity</div>
+          <span class="kb-risk risk-critical">CRITICAL RISK</span>
+        </div>
+        <div class="kb-desc">Networks of thousands of "zombie" infected computers (or smart-fridges) controlled by a single hacker to perform automated attacks against your site.</div>
+        <div class="kb-section">
+          <div class="kb-sect-title">Danger Level</div>
+          <div class="kb-sect-val">Highly automated and relentless. Can be used for massive spam or coordinated hacking.</div>
+        </div>
+        <div class="kb-section">
+          <div class="kb-sect-title">AI Response</div>
+          <div class="kb-sect-val kb-action-title">Pattern-based Cluster Blocking.</div>
+        </div>
+      </div>
+
+      <!-- Brute Force -->
+      <div class="kb-card high">
+        <div class="kb-card-header">
+          <div class="kb-atk-name">Brute Force / Guessing</div>
+          <span class="kb-risk risk-high">HIGH RISK</span>
+        </div>
+        <div class="kb-desc">Hackers use "robots" to try thousands of password combinations a second on your login page until they kick the door down and get inside.</div>
+        <div class="kb-section">
+          <div class="kb-sect-title">Danger Level</div>
+          <div class="kb-sect-val">Leads to account takeovers and unauthorized access to your private dashboard.</div>
+        </div>
+        <div class="kb-section">
+          <div class="kb-sect-title">AI Response</div>
+          <div class="kb-sect-val kb-action-title">Auto-Lockdown after detection of repeated failures.</div>
+        </div>
+      </div>
+
+      <!-- Cross Site Scripting -->
+      <div class="kb-card high">
+        <div class="kb-card-header">
+          <div class="kb-atk-name">Cross-Site Scripting (XSS)</div>
+          <span class="kb-risk risk-high">HIGH RISK</span>
+        </div>
+        <div class="kb-desc">A sneaky attack where hackers inject malicious code into the pages your users see. The code can steal their login tokens or "impersonate" your website.</div>
+        <div class="kb-section">
+          <div class="kb-sect-title">Danger Level</div>
+          <div class="kb-sect-val">Undermines your users' trust and can lead to their personal accounts being stolen.</div>
+        </div>
+        <div class="kb-section">
+          <div class="kb-sect-title">AI Response</div>
+          <div class="kb-sect-val kb-action-title">JavaScript Sandbox Isolation & Block.</div>
+        </div>
+      </div>
+
+      <!-- Port Scan -->
+      <div class="kb-card medium">
+        <div class="kb-card-header">
+          <div class="kb-atk-name">Port Scanning</div>
+          <span class="kb-risk risk-medium">MEDIUM RISK</span>
+        </div>
+        <div class="kb-desc">Digital "window peeping." Hackers scan your server to see which "doors" (ports) are open or unlocked as a first step to launch a bigger attack.</div>
+        <div class="kb-section">
+          <div class="kb-sect-title">Danger Level</div>
+          <div class="kb-sect-val">It is the reconnaissance phase. It means someone is specifically looking for a way in.</div>
+        </div>
+        <div class="kb-section">
+          <div class="kb-sect-title">AI Response</div>
+          <div class="kb-sect-val kb-action-title">Host Cloaking and Recon Detection.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Info callout -->
+    <div style="margin-top: 50px; background: rgba(79,70,229,0.05); padding: 30px; border-radius: 16px; border: 1px dashed var(--border); text-align: center;">
+      <div style="color: var(--neon); font-family: var(--display); font-size: 1rem; margin-bottom: 10px; font-weight: 700;">WHY WE BLOCK THESE AUTOMATICALLY</div>
+      <div style="color: var(--subtext); font-size: .85rem; max-width: 800px; margin: 0 auto; line-height: 1.6;">
+        Our AI monitors millions of data points every second. By the time you get a notification, the threat has already been identified and neutralized. This "Zero-Trust" approach ensures that even if you don't know what an attack is, you are always protected.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
