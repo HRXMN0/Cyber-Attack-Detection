@@ -83,13 +83,13 @@ body {
 
 /* ── HEADER ─────────────────────────────────────── */
 .soc-header {
-  grid-row: 1; grid-column: 1;
+  height: 58px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 18px;
-  background: rgba(2,8,20,0.95);
+  background: rgba(15,23,42,0.95);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(20px);
-  position: relative; z-index: 100;
+  position: sticky; top: 0; left: 0; right: 0; z-index: 1000;
 }
 .header-nav {
   display: flex; gap: 20px; font-family: var(--display); font-size: .62rem; font-weight: 700;
@@ -105,10 +105,10 @@ body {
   background: linear-gradient(90deg,transparent,var(--neon),transparent);
   opacity: .4;
 }
-.header-brand { display: flex; align-items: center; gap: 12px; }
-.brand-icon { font-size: 1.5rem; filter: drop-shadow(0 0 10px #4f46e588); }
-.brand-title { font-family: var(--display); font-size: 0.9rem; font-weight: 900; letter-spacing: 3px; color: var(--neon); }
-.brand-sub { font-size: 0.58rem; color: var(--dimtext); letter-spacing: 2px; font-family: var(--mono); }
+.header-brand { display: flex; align-items: center; gap: 12px; height: 100%; }
+.brand-icon { font-size: 1.5rem; }
+.brand-title { font-family: var(--display); font-size: 0.9rem; font-weight: 900; letter-spacing: 3px; color: var(--text); }
+.brand-sub { font-size: 0.52rem; color: var(--dimtext); letter-spacing: 2px; font-family: var(--sans); text-transform: uppercase; }
 
 .header-center { display: flex; align-items: center; gap: 24px; }
 .attack-status {
