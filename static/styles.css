@@ -78,6 +78,7 @@ body {
   grid-template-rows: 58px 1fr 220px;
   grid-template-columns: 1fr;
   height: 100vh;
+  min-width: 1200px; /* Prevent horizontal squishing on very small screens */
 }
 
 /* ── HEADER ─────────────────────────────────────── */
@@ -90,6 +91,15 @@ body {
   backdrop-filter: blur(20px);
   position: relative; z-index: 100;
 }
+.header-nav {
+  display: flex; gap: 20px; font-family: var(--display); font-size: .62rem; font-weight: 700;
+  letter-spacing: 1.5px; margin-left: 30px;
+}
+.nav-item {
+  color: var(--subtext); text-decoration: none; padding: 6px 0; border-bottom: 2px solid transparent; 
+  transition: .3s; text-transform: uppercase;
+}
+.nav-item:hover, .nav-item.active { color: var(--neon); border-bottom-color: var(--neon); }
 .soc-header::after {
   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
   background: linear-gradient(90deg,transparent,var(--neon),transparent);
@@ -150,14 +160,20 @@ body {
   grid-template-columns: 260px 1fr 280px;
   overflow: hidden;
   gap: 0;
+  min-height: 0; /* Important for grid items to shrink */
 }
 
 /* ── PANELS (shared) ────────────────────────────── */
 .panel {
   background: var(--panel); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: 0; 
+  overflow-y: auto; overflow-x: hidden;
   backdrop-filter: blur(12px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
+.panel::-webkit-scrollbar { width: 4px; }
+.panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 .panel-right { border-right: none; border-left: 1px solid var(--border); }
 .panel-block {
   padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -278,14 +294,17 @@ body {
   flex: 1; overflow-y: auto; margin: 0 -14px; padding: 0 14px;
   scrollbar-width: thin; scrollbar-color: rgba(79,70,229,.2) transparent;
 }
-.attack-table { width: 100%; border-collapse: collapse; font-size: .68rem; }
-.attack-table thead th { font-family: var(--mono); font-size: .55rem; letter-spacing: 1.5px; color: var(--dimtext); text-align: left; padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.05); text-transform: uppercase; }
+.attack-table { width: 100%; border-collapse: collapse; text-align: left; table-layout: fixed; }
+.attack-table.detailed { table-layout: auto; }
+.attack-table thead th {
+  padding: 8px 6px; font-family: var(--mono); font-size: .56rem; color: var(--dimtext);
+  border-bottom: 2px solid var(--border); text-transform: uppercase; letter-spacing: 1px;
+}
 .attack-table tbody tr { border-bottom: 1px solid rgba(255,255,255,.03); transition: background .2s; }
 .attack-table tbody tr:hover { background: rgba(79,70,229,.04); }
 .attack-table tbody tr.new-row { animation: rowFlash .6s ease; }
 @keyframes rowFlash { 0%{background: rgba(79,70,229,.15)} 100%{background: transparent} }
 .attack-table td { padding: 5px 6px; color: var(--subtext); white-space: nowrap; }
-.attack-table td:nth-child(2) { color: var(--neon); font-family: var(--mono); font-size: .66rem; }
 .attack-table td:nth-child(3) { color: var(--text); }
 .empty-row { text-align: center; color: var(--dimtext); padding: 24px; font-size: .72rem; }
 

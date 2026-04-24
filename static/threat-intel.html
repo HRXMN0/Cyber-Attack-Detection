@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Threat Intelligence | AI Cyber SOC</title>
+  <link rel="stylesheet" href="/static/styles.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    .intel-container { padding: 30px; max-width: 1600px; margin: 0 auto; min-width: 1200px; }
+    .intel-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; border-bottom: 1px solid var(--border2); padding-bottom: 16px; }
+    .intel-title { font-family: var(--display); font-size: 1.4rem; font-weight: 800; color: var(--text); letter-spacing: 1px; }
+    .intel-title span { color: var(--neon); }
+    
+    .filter-bar { display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg2); padding: 15px 20px; border-radius: 12px; border: 1px solid var(--border); }
+    .f-group { display: flex; flex-direction: column; gap: 5px; }
+    .f-lbl { font-size: .6rem; color: var(--dimtext); font-family: var(--mono); text-transform: uppercase; }
+    .f-input { background: #010710; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: .75rem; font-family: var(--sans); min-width: 180px; }
+    .f-btn { background: var(--neon); color: #020409; border: none; padding: 0 24px; border-radius: 6px; font-weight: 800; font-size: .7rem; cursor: pointer; height: 36px; align-self: flex-end; transition: .2s; }
+    .f-btn:hover { background: #fff; box-shadow: 0 0 15px rgba(255,255,255,0.2); }
+
+    .logs-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; min-height: 600px; }
+    .logs-header { padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); }
+    .logs-body { flex: 1; overflow-x: auto; }
+    .pagination { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .p-btn { background: #010710; border: 1px solid var(--border); color: var(--subtext); padding: 6px 14px; border-radius: 6px; font-size: .7rem; cursor: pointer; }
+    .p-btn.active { color: var(--neon); border-color: var(--neon); }
+    .p-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  </style>
+</head>
+<body style="display: block; overflow-y: auto;">
+  <header class="soc-header">
+    <div class="header-brand">
+      <div class="brand-icon">🛡️</div>
+      <div>
+        <div class="brand-title">AI CYBER SOC</div>
+        <div class="brand-sub">SECURITY OPERATIONS CENTER &nbsp;·&nbsp; CLASSIFIED</div>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-item">Dashboard</a>
+      <a href="/intelligence" class="nav-item active">Threat Intel</a>
+      <a href="/embed" class="nav-item">Site Monitor</a>
+    </nav>
+    <div class="header-right">
+      <a href="/auth/logout" class="logout-btn" title="Logout">⏻</a>
+    </div>
+  </header>
+
+  <div class="intel-container">
+    <div class="intel-header">
+      <div class="intel-title">THREAT <span>INTELLIGENCE</span> & FORENSICS</div>
+      <div style="font-family: var(--mono); font-size: .65rem; color: var(--dimtext);">LOG RETENTION: 90 DAYS ACTIVE</div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="f-group">
+        <span class="f-lbl">Attack Pattern</span>
+        <input type="text" id="filterAttack" class="f-input" placeholder="e.g. DDOS, SQLI..."/>
+      </div>
+      <div class="f-group">
+        <span class="f-lbl">Target Site</span>
+        <input type="text" id="filterSite" class="f-input" placeholder="Site ID..."/>
+      </div>
+      <div class="f-group">
+        <span class="f-lbl">Severity</span>
+        <select id="filterSeverity" class="f-input">
+          <option value="">All Severities</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+      </div>
+      <button class="f-btn" onclick="fetchLogs()">EXECUTE QUERY</button>
+    </div>
+
+    <div class="logs-card">
+      <div class="logs-header">
+        <div class="panel-title" style="margin:0;"><span class="pulse-dot red"></span> DATABASE EXFILTRATION LOGS</div>
+        <div style="font-family: var(--mono); font-size: .6rem; color: var(--subtext);" id="logStats">Showing 0 entries</div>
+      </div>
+      <div class="logs-body">
+        <table class="attack-table detailed">
+          <thead>
+            <tr>
+              <th style="width:140px;">TIMESTAMP</th>
+              <th style="width:120px;">SOURCE IP</th>
+              <th style="width:110px;">ATTACK</th>
+              <th style="width:80px;">SEV</th>
+              <th style="width:100px;">SITE</th>
+              <th>LOCATION</th>
+              <th>PATH</th>
+              <th>METHOD</th>
+              <th>BYTES</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody">
+            <tr><td colspan="9" class="empty-row">Querying forensic database...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination">
+        <!-- Pagination controls -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentPage = 1;
+    function fetchLogs(page = 1) {
+      currentPage = page;
+      const attack  = document.getElementById('filterAttack').value;
+      const site    = document.getElementById('filterSite').value;
+      const sev     = document.getElementById('filterSeverity').value;
+      
+      const tbody = document.getElementById('logsTableBody');
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-row">Loading detailed traces...</td></tr>';
+
+      fetch(`/api/intelligence/logs?page=${page}&attack=${attack}&site=${site}&severity=${sev}`)
+        .then(r => r.json())
+        .then(data => {
+          renderLogs(data.logs);
+          renderPagination(data.total_pages);
+          document.getElementById('logStats').innerText = `Total Log Entries: ${data.total}`;
+        }).catch(e => {
+          tbody.innerHTML = `<tr><td colspan="9" class="empty-row" style="color:var(--red);">FORENSIC QUERY FAILED: ${e.message}</td></tr>`;
+        });
+    }
+
+    function renderLogs(logs) {
+      const tbody = document.getElementById('logsTableBody');
+      if (!logs || logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-row">No matching attack vectors found.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = logs.map(l => {
+        const sevClass = (l.severity || '').toLowerCase();
+        return `
+          <tr>
+            <td>${l.timestamp}</td>
+            <td style="color:var(--neon); font-family:var(--mono); font-size:.65rem;">${l.ip}</td>
+            <td>${l.attack}</td>
+            <td><span class="sev-badge ${sevClass}">${l.severity}</span></td>
+            <td><span style="font-size:.55rem; color:var(--neon); border:1px solid rgba(79,70,229,0.3); padding:1px 4px; border-radius:4px;">${l.site_id || 'local'}</span></td>
+            <td>${l.city || '-'}, ${l.country || '-'}</td>
+            <td style="font-family:var(--mono); font-size:.6rem; color:var(--subtext);">${l.path || '/'}</td>
+            <td>${l.method || 'GET'}</td>
+            <td style="font-family:var(--mono);">${(l.bytes_in / 1024).toFixed(1)} KB</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderPagination(totalPages) {
+      const pag = document.getElementById('pagination');
+      let html = '';
+      for (let i = 1; i <= Math.min(totalPages, 15); i++) {
+        html += `<button class="p-btn ${i === currentPage ? 'active' : ''}" onclick="fetchLogs(${i})">${i}</button>`;
+      }
+      if (totalPages > 15) html += '<span style="color:var(--dimtext);">...</span>';
+      pag.innerHTML = html;
+    }
+
+    // Initial load
+    fetchLogs();
+  </script>
+</body>
+</html>

@@ -429,6 +429,76 @@ def embed():
     return send_from_directory(STATIC_DIR, "embed.html")
 
 
+@app.route("/intelligence", methods=["GET"])
+@login_required
+def intelligence():
+    """Serve the forensic attack logs page."""
+    return send_from_directory(STATIC_DIR, "threat-intel.html")
+
+
+@app.route("/api/intelligence/logs", methods=["GET"])
+@login_required
+def api_intelligence_logs():
+    """
+    Forensic API: returns historical attack traces with server-side filtering.
+    Scoped by user role.
+    """
+    page     = int(request.args.get("page", 1))
+    attack   = request.args.get("attack", "").strip()
+    site     = request.args.get("site", "").strip()
+    severity = request.args.get("severity", "").strip()
+    per_page = 50
+    offset   = (page - 1) * per_page
+
+    # Security scoping
+    user_site = None
+    if not is_admin_user():
+        user_site = getattr(current_user, "site_id", None)
+        if not user_site:
+            return jsonify({"logs": [], "total": 0, "total_pages": 0}), 200
+        site = user_site  # Force their site only
+
+    # Build filtered query
+    where_clauses = ["severity != 'None'"]
+    params = []
+    
+    if attack:
+        where_clauses.append("attack LIKE ?")
+        params.append(f"%{attack}%")
+    if site:
+        where_clauses.append("site_id = ?")
+        params.append(site)
+    if severity:
+        where_clauses.append("severity = ?")
+        params.append(severity)
+    
+    where_sql = " AND ".join(where_clauses)
+    
+    with get_db() as conn:
+        # Count total
+        count_sql = f"SELECT COUNT(*) FROM attack_log WHERE {where_sql}"
+        total = conn.execute(count_sql, params).fetchone()[0]
+        
+        # Fetch data
+        data_sql = f"""
+            SELECT * FROM attack_log 
+            WHERE {where_sql} 
+            ORDER BY id DESC 
+            LIMIT ? OFFSET ?
+        """
+        rows = conn.execute(data_sql, params + [per_page, offset]).fetchall()
+    
+    logs = [dict(r) for r in rows]
+    total_pages = (total + per_page - 1) // per_page
+    
+    return jsonify({
+        "logs": logs,
+        "total": total,
+        "page": page,
+        "total_pages": total_pages
+    }), 200
+
+
 @app.route("/api/status", methods=["GET"])
 def api_status():
     return jsonify({"status": "ok", "message": "Website Running Securely"}), 200

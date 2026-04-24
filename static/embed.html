@@ -24,10 +24,13 @@
     body::before{display: none;}
 
     /* Top bar */
-    .topbar{position:sticky;top:0;z-index:100;background:rgba(2,4,9,.95);border-bottom:1px solid var(--border);padding:12px 32px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(16px);}
-    .topbar-brand{display:flex;align-items:center;gap:10px;}
-    .topbar-brand .icon{font-size:1.3rem;filter:drop-shadow(0 0 8px #4f46e566);}
-    .topbar-brand .name{font-family:'Inter',sans-serif;font-size:.82rem;font-weight:900;color:var(--neon);letter-spacing:2px;}
+    .topbar{position:sticky;top:0;z-index:100;background:rgba(15,23,42,0.95);border-bottom:1px solid var(--border);padding:12px 32px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(20px);}
+    .topbar-brand{display:flex;align-items:center;gap:12px;}
+    .topbar-brand .icon{font-size:1.4rem;}
+    .topbar-brand .name{font-family:'Inter',sans-serif;font-size:.85rem;font-weight:900;color:var(--text);letter-spacing:1px;}
+    .header-nav { display: flex; gap: 20px; font-family: 'Inter', sans-serif; font-size: .62rem; font-weight: 700; letter-spacing: 1.5px; margin-left: auto; margin-right: 30px; }
+    .nav-item { color: var(--subtext); text-decoration: none; padding: 6px 0; border-bottom: 2px solid transparent; transition: .3s; text-transform: uppercase; }
+    .nav-item:hover, .nav-item.active { color: var(--neon); border-bottom-color: var(--neon); }
     .topbar-actions{display:flex;gap:10px;}
     .back-btn{display:flex;align-items:center;gap:6px;text-decoration:none;color:#8892b0;font-size:.78rem;padding:6px 12px;border:1px solid rgba(255,255,255,.08);border-radius:8px;transition:.2s;}
     .back-btn:hover{background:rgba(255,255,255,.05);color:#e8eaf6;}
@@ -145,8 +148,13 @@
     <span class="icon">🛡️</span>
     <span class="name">AI CYBER SOC</span>
   </div>
+  <nav class="header-nav">
+    <a href="/" class="nav-item">Dashboard</a>
+    <a href="/intelligence" class="nav-item">Threat Intel</a>
+    <a href="/embed" class="nav-item active">Site Monitor</a>
+  </nav>
   <div class="topbar-actions">
-    <a href="/" class="back-btn">← Dashboard</a>
+    <a href="/auth/logout" class="back-btn" title="Logout">⏻</a>
   </div>
 </div>
 
