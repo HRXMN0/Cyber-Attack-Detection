@@ -4,21 +4,30 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Deploy Monitoring Agent — AI Cyber SOC</title>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@600;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@600;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
-    :root{--neon:#00e5ff;--green:#00ff88;--red:#ff1744;--orange:#ff6d00;--purple:#aa00ff;--bg:#020409;--panel:rgba(4,12,28,0.92);--border:rgba(0,229,255,0.12);}
-    body{font-family:'Inter',sans-serif;background:var(--bg);color:#e8eaf6;min-height:100vh;padding:0;}
-    ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-thumb{background:rgba(0,229,255,.2);border-radius:99px;}
+    :root {
+      --bg:       #0f172a;
+      --panel:    #1e293b;
+      --border:   rgba(255,255,255,0.08);
+      --neon:     #4f46e5;
+      --green:    #10b981;
+      --red:      #ef4444;
+      --orange:   #f59e0b;
+      --purple:   #8b5cf6;
+    }
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:#f8fafc;min-height:100vh;padding:0;}
+    ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:99px;}
 
-    /* Grid bg */
-    body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.03) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;}
+    /* Background overrides */
+    body::before{display: none;}
 
     /* Top bar */
     .topbar{position:sticky;top:0;z-index:100;background:rgba(2,4,9,.95);border-bottom:1px solid var(--border);padding:12px 32px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(16px);}
     .topbar-brand{display:flex;align-items:center;gap:10px;}
-    .topbar-brand .icon{font-size:1.3rem;filter:drop-shadow(0 0 8px #00e5ff66);}
-    .topbar-brand .name{font-family:'Orbitron',sans-serif;font-size:.82rem;font-weight:900;color:var(--neon);letter-spacing:2px;}
+    .topbar-brand .icon{font-size:1.3rem;filter:drop-shadow(0 0 8px #4f46e566);}
+    .topbar-brand .name{font-family:'Inter',sans-serif;font-size:.82rem;font-weight:900;color:var(--neon);letter-spacing:2px;}
     .topbar-actions{display:flex;gap:10px;}
     .back-btn{display:flex;align-items:center;gap:6px;text-decoration:none;color:#8892b0;font-size:.78rem;padding:6px 12px;border:1px solid rgba(255,255,255,.08);border-radius:8px;transition:.2s;}
     .back-btn:hover{background:rgba(255,255,255,.05);color:#e8eaf6;}
@@ -28,49 +37,49 @@
 
     /* Hero */
     .hero{text-align:center;margin-bottom:52px;}
-    .hero-badge{display:inline-flex;align-items:center;gap:7px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.2);border-radius:99px;padding:6px 16px;font-size:.72rem;font-weight:700;color:var(--neon);letter-spacing:1.5px;margin-bottom:20px;text-transform:uppercase;}
+    .hero-badge{display:inline-flex;align-items:center;gap:7px;background:rgba(79,70,229,.08);border:1px solid rgba(79,70,229,.2);border-radius:99px;padding:6px 16px;font-size:.72rem;font-weight:700;color:var(--neon);letter-spacing:1.5px;margin-bottom:20px;text-transform:uppercase;}
     .hero-badge .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulseDot 1.2s ease-in-out infinite;}
     @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.3}}
-    .hero h1{font-family:'Orbitron',sans-serif;font-size:2.2rem;font-weight:900;letter-spacing:2px;margin-bottom:14px;background:linear-gradient(135deg,#e8eaf6,var(--neon));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .hero h1{font-family:'Inter',sans-serif;font-size:2.2rem;font-weight:900;letter-spacing:2px;margin-bottom:14px;background:linear-gradient(135deg,#e8eaf6,var(--neon));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
     .hero p{color:#8892b0;font-size:.95rem;max-width:640px;margin:0 auto;line-height:1.7;}
 
     /* How it works */
     .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-bottom:52px;position:relative;}
-    .flow::before{content:'';position:absolute;top:28px;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(0,229,255,.3),rgba(0,229,255,.3),transparent);}
+    .flow::before{content:'';position:absolute;top:28px;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(79,70,229,.3),rgba(79,70,229,.3),transparent);}
     .flow-step{text-align:center;padding:0 16px;}
-    .flow-icon{width:56px;height:56px;border-radius:50%;border:2px solid rgba(0,229,255,.25);background:rgba(0,229,255,.06);display:flex;align-items:center;justify-content:center;font-size:1.4rem;margin:0 auto 14px;position:relative;z-index:1;}
+    .flow-icon{width:56px;height:56px;border-radius:50%;border:2px solid rgba(79,70,229,.25);background:rgba(79,70,229,.06);display:flex;align-items:center;justify-content:center;font-size:1.4rem;margin:0 auto 14px;position:relative;z-index:1;}
     .flow-num{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--neon);color:#020409;font-size:.62rem;font-weight:900;display:flex;align-items:center;justify-content:center;}
     .flow-title{font-weight:700;font-size:.85rem;margin-bottom:5px;}
     .flow-desc{font-size:.72rem;color:#8892b0;line-height:1.5;}
 
     /* Section */
-    .section-title{font-family:'Orbitron',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:3px;color:#8892b0;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
+    .section-title{font-family:'Inter',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:3px;color:#8892b0;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
     .section-title::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06);}
 
     /* Site cards */
     .sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-bottom:48px;}
     .site-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:22px;backdrop-filter:blur(14px);transition:.3s;}
-    .site-card:hover{border-color:rgba(0,229,255,.3);box-shadow:0 0 30px rgba(0,229,255,.06);}
+    .site-card:hover{border-color:rgba(79,70,229,.3);box-shadow:0 0 30px rgba(79,70,229,.06);}
     .sc-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;}
     .sc-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);margin-top:6px;flex-shrink:0;}
     .sc-name{font-weight:800;font-size:1rem;}
-    .sc-url{font-family:'Share Tech Mono',monospace;font-size:.7rem;color:#8892b0;margin-top:2px;}
+    .sc-url{font-family:'Inter',monospace;font-size:.7rem;color:#8892b0;margin-top:2px;}
     .sc-stat{display:flex;gap:14px;margin-bottom:14px;}
     .sta{text-align:center;}
-    .sta-val{font-family:'Orbitron',sans-serif;font-size:.95rem;font-weight:700;}
+    .sta-val{font-family:'Inter',sans-serif;font-size:.95rem;font-weight:700;}
     .sta-val.cyan{color:var(--neon);}
     .sta-val.red{color:var(--red);}
     .sta-val.green{color:var(--green);}
     .sta-lbl{font-size:.55rem;color:#4a6080;letter-spacing:1.5px;text-transform:uppercase;}
     .cred-row{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:9px;margin-bottom:8px;}
     .cred-lbl{font-size:.62rem;color:#4a6080;text-transform:uppercase;letter-spacing:1px;width:52px;flex-shrink:0;}
-    .cred-val{font-family:'Share Tech Mono',monospace;font-size:.74rem;color:var(--green);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .cred-copy{padding:3px 10px;border:1px solid rgba(0,229,255,.25);background:rgba(0,229,255,.07);border-radius:5px;color:var(--neon);cursor:pointer;font-size:.62rem;font-weight:700;letter-spacing:.5px;transition:.15s;white-space:nowrap;}
-    .cred-copy:hover{background:rgba(0,229,255,.18);}
+    .cred-val{font-family:'Inter',monospace;font-size:.74rem;color:var(--green);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .cred-copy{padding:3px 10px;border:1px solid rgba(79,70,229,.25);background:rgba(79,70,229,.07);border-radius:5px;color:var(--neon);cursor:pointer;font-size:.62rem;font-weight:700;letter-spacing:.5px;transition:.15s;white-space:nowrap;}
+    .cred-copy:hover{background:rgba(79,70,229,.18);}
     .cred-copy.copied{border-color:rgba(0,255,136,.4);background:rgba(0,255,136,.1);color:var(--green);}
     .sc-status{display:flex;align-items:center;gap:6px;font-size:.7rem;color:#8892b0;}
     .status-dot-sm{width:6px;height:6px;border-radius:50%;background:var(--green);}
-    .empty-sites{text-align:center;padding:48px;background:rgba(0,229,255,.03);border:1px dashed rgba(0,229,255,.15);border-radius:16px;color:#4a6080;font-size:.9rem;}
+    .empty-sites{text-align:center;padding:48px;background:rgba(79,70,229,.03);border:1px dashed rgba(79,70,229,.15);border-radius:16px;color:#4a6080;font-size:.9rem;}
 
     /* Script tag display */
     .deploy-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:28px 32px;margin-bottom:48px;position:relative;overflow:hidden;}
@@ -79,24 +88,24 @@
     /* Tab switcher */
     .tabs{display:flex;gap:4px;margin-bottom:20px;background:rgba(0,0,0,.3);border-radius:10px;padding:4px;}
     .tab-btn{padding:7px 18px;border-radius:7px;border:none;background:transparent;color:#8892b0;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s;letter-spacing:.3px;}
-    .tab-btn.active{background:rgba(0,229,255,.12);color:var(--neon);border:1px solid rgba(0,229,255,.2);}
+    .tab-btn.active{background:rgba(79,70,229,.12);color:var(--neon);border:1px solid rgba(79,70,229,.2);}
 
     /* Code block */
-    .code-block{position:relative;background:#010710;border:1px solid rgba(0,229,255,.12);border-radius:12px;padding:20px 22px;font-family:'Share Tech Mono',monospace;font-size:.8rem;line-height:1.7;overflow-x:auto;}
+    .code-block{position:relative;background:#010710;border:1px solid rgba(79,70,229,.12);border-radius:12px;padding:20px 22px;font-family:'Inter',monospace;font-size:.8rem;line-height:1.7;overflow-x:auto;}
     .code-block .c-comment{color:#3a4a5a;}
     .code-block .c-tag{color:var(--neon);}
     .code-block .c-attr{color:#ffd600;}
     .code-block .c-val{color:var(--green);}
     .code-block .c-str{color:#ff9100;}
     .code-block .c-py{color:#7c4dff;}
-    .copy-code-btn{position:absolute;top:14px;right:14px;padding:5px 14px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);border-radius:7px;color:var(--neon);font-size:.68rem;font-weight:700;cursor:pointer;transition:.2s;letter-spacing:.5px;}
-    .copy-code-btn:hover{background:rgba(0,229,255,.22);}
+    .copy-code-btn{position:absolute;top:14px;right:14px;padding:5px 14px;background:rgba(79,70,229,.1);border:1px solid rgba(79,70,229,.25);border-radius:7px;color:var(--neon);font-size:.68rem;font-weight:700;cursor:pointer;transition:.2s;letter-spacing:.5px;}
+    .copy-code-btn:hover{background:rgba(79,70,229,.22);}
     .copy-code-btn.copied{background:rgba(0,255,136,.1);border-color:rgba(0,255,136,.3);color:var(--green);}
 
     /* Steps */
     .steps{display:flex;flex-direction:column;gap:16px;}
     .step{display:flex;gap:16px;align-items:flex-start;}
-    .step-num{min-width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,rgba(0,229,255,.15),rgba(0,229,255,.3));border:1.5px solid rgba(0,229,255,.35);display:flex;align-items:center;justify-content:center;font-family:'Orbitron',sans-serif;font-size:.65rem;font-weight:700;color:var(--neon);flex-shrink:0;margin-top:2px;}
+    .step-num{min-width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,rgba(79,70,229,.15),rgba(79,70,229,.3));border:1.5px solid rgba(79,70,229,.35);display:flex;align-items:center;justify-content:center;font-family:'Inter',sans-serif;font-size:.65rem;font-weight:700;color:var(--neon);flex-shrink:0;margin-top:2px;}
     .step-body{flex:1;}
     .step-title{font-weight:700;font-size:.88rem;margin-bottom:3px;}
     .step-desc{color:#8892b0;font-size:.78rem;line-height:1.5;}
@@ -110,17 +119,17 @@
     /* What gets monitored */
     .detect-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:48px;}
     .detect-item{background:var(--panel);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:16px;transition:.2s;}
-    .detect-item:hover{border-color:rgba(0,229,255,.2);}
+    .detect-item:hover{border-color:rgba(79,70,229,.2);}
     .di-icon{font-size:1.4rem;margin-bottom:8px;}
     .di-title{font-weight:700;font-size:.82rem;margin-bottom:3px;}
     .di-desc{font-size:.68rem;color:#8892b0;line-height:1.4;}
 
     /* Live test */
-    .live-test{background:linear-gradient(135deg,rgba(0,229,255,.04),rgba(170,0,255,.04));border:1px solid rgba(0,229,255,.15);border-radius:16px;padding:28px;text-align:center;margin-bottom:48px;}
-    .lt-title{font-family:'Orbitron',sans-serif;font-size:.85rem;font-weight:700;letter-spacing:2px;margin-bottom:8px;color:var(--neon);}
+    .live-test{background:linear-gradient(135deg,rgba(79,70,229,.04),rgba(170,0,255,.04));border:1px solid rgba(79,70,229,.15);border-radius:16px;padding:28px;text-align:center;margin-bottom:48px;}
+    .lt-title{font-family:'Inter',sans-serif;font-size:.85rem;font-weight:700;letter-spacing:2px;margin-bottom:8px;color:var(--neon);}
     .lt-desc{color:#8892b0;font-size:.82rem;margin-bottom:20px;}
-    .lt-btn{padding:11px 28px;background:linear-gradient(135deg,rgba(0,229,255,.15),rgba(0,229,255,.3));border:1.5px solid rgba(0,229,255,.4);border-radius:10px;color:var(--neon);font-family:'Orbitron',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:2px;cursor:pointer;transition:.25s;}
-    .lt-btn:hover{background:linear-gradient(135deg,rgba(0,229,255,.25),rgba(0,229,255,.45));box-shadow:0 0 20px rgba(0,229,255,.2);}
+    .lt-btn{padding:11px 28px;background:linear-gradient(135deg,rgba(79,70,229,.15),rgba(79,70,229,.3));border:1.5px solid rgba(79,70,229,.4);border-radius:10px;color:var(--neon);font-family:'Inter',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:2px;cursor:pointer;transition:.25s;}
+    .lt-btn:hover{background:linear-gradient(135deg,rgba(79,70,229,.25),rgba(79,70,229,.45));box-shadow:0 0 20px rgba(79,70,229,.2);}
     .lt-result{margin-top:16px;padding:12px 16px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);border-radius:10px;font-size:.8rem;color:var(--green);display:none;}
     .lt-result.show{display:block;}
 
@@ -150,7 +159,7 @@
       REAL-TIME CYBER THREAT INTELLIGENCE
     </div>
     <h1>DEPLOY MONITORING AGENT</h1>
-    <p>Embed a single <code style="color:var(--neon);background:rgba(0,229,255,.08);padding:2px 7px;border-radius:5px;font-size:.88rem;">&lt;script&gt;</code> tag on any website to instantly activate AI-powered cyber attack detection with full attacker geolocation and threat analysis.</p>
+    <p>Embed a single <code style="color:var(--neon);background:rgba(79,70,229,.08);padding:2px 7px;border-radius:5px;font-size:.88rem;">&lt;script&gt;</code> tag on any website to instantly activate AI-powered cyber attack detection with full attacker geolocation and threat analysis.</p>
   </div>
 
   <!-- How it works flow -->
@@ -192,6 +201,7 @@
       <button class="tab-btn" data-tab="nextjs">Next.js / React</button>
       <button class="tab-btn" data-tab="php">PHP</button>
       <button class="tab-btn" data-tab="django">Django / Flask</button>
+      <button class="tab-btn" style="color:var(--neon); border: 1px solid rgba(79,70,229,.3);" data-tab="ai_agent">🤖 AI Prompt</button>
     </div>
 
     <!-- HTML -->
@@ -278,6 +288,24 @@ add_action(<span class="c-str">'wp_footer'</span>, <span class="c-str">'soc_moni
   <span class="c-attr">data-key</span>=<span class="c-str">"<span id="apiKeyDjango">YOUR_API_KEY</span>"</span>
   <span class="c-attr">defer</span>
 <span class="c-tag">&gt;&lt;/script&gt;</span></pre>
+      </div>
+    </div>
+
+    <!-- AI Agent Prompt -->
+    <div id="tab-ai_agent" class="tab-content" style="display:none;">
+      <p style="font-size:.8rem;color:#8892b0;margin-bottom:14px;">Copy this prompt and paste it into your AI coding assistant (like Cursor, Windsurf, or Claude) to automatically integrate the SOC agent into your codebase.</p>
+      <div class="code-block" id="codeAi" style="border-color: rgba(170,0,255,0.4); background: rgba(170,0,255,0.03);">
+        <button class="copy-code-btn" onclick="copyCode('codeAi')" style="background: linear-gradient(135deg, var(--purple), var(--neon)); border: none; color: #020409; font-weight: 900; box-shadow: 0 4px 15px rgba(170,0,255,0.4); padding: 6px 16px;">COPY PROMPT</button>
+<pre style="white-space: pre-wrap; font-family: 'Inter', sans-serif; color: #e8eaf6;">I want to deploy an AI Cyber SOC Monitoring Agent to my web application. Please analyze my codebase and add the following script tag globally to my application layout (e.g. within the main <span style="font-family: monospace; color: var(--neon);">&lt;head&gt;</span> or <span style="font-family: monospace; color: var(--neon);">&lt;/body&gt;</span> so it runs on every page):
+
+<span style="font-family: monospace; color: var(--neon);">&lt;script 
+  src="<span id="socUrlAi">https://your-soc.onrender.com</span>/static/agent.js" 
+  data-site="<span id="siteIdAi">YOUR_SITE_ID</span>" 
+  data-key="<span id="apiKeyAi">YOUR_API_KEY</span>" 
+  defer&gt;
+&lt;/script&gt;</span>
+
+Requirement: Do not change the data-site or data-key values in this prompt. Ensure it loads asynchronously and does not block page rendering.</pre>
       </div>
     </div>
   </div>
@@ -405,6 +433,7 @@ add_action(<span class="c-str">'wp_footer'</span>, <span class="c-str">'soc_moni
     next: { soc:'socUrlNext', site:'siteIdNext',  key:'apiKeyNext'},
     php:  { soc:'socUrlPhp',  site:'siteIdPhp',   key:'apiKeyPhp' },
     dj:   { soc:'socUrlDjango',site:'siteIdDjango',key:'apiKeyDjango'},
+    ai:   { soc:'socUrlAi',   site:'siteIdAi',   key:'apiKeyAi'  },
   };
 
   function fillCodeBlocks(siteId, apiKey) {

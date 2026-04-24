@@ -1,191 +1,193 @@
 # =============================================================================
-# train_model.py — ML Model Training Pipeline
-# Trains a Random Forest Classifier on the NSL-KDD dataset.
-#
-# NSL-KDD Reference:
-#   https://www.unb.ca/cic/datasets/nsl.html
-#   File used: KDDTrain+.txt  (place in the same directory as this script)
-#
-# Outputs:
-#   attack_model.pkl  — trained RandomForestClassifier
-#   encoders.pkl      — dict of LabelEncoders for categorical columns
-#   columns.pkl       — list of feature column names used during training
+# train_model.py — ML Model Training Pipeline (XGBoost)
+# Trains an XGBoost Classifier on the CICIDS2017 dataset.
 # =============================================================================
 
 import os
 import pickle
 import sys
+import glob
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 # ---------------------------------------------------------------------------
-# 1. Column definitions for the NSL-KDD dataset
+# 1. Configuration
 # ---------------------------------------------------------------------------
-COL_NAMES = [
-    "duration", "protocol_type", "service", "flag",
-    "src_bytes", "dst_bytes", "land", "wrong_fragment", "urgent",
-    "hot", "num_failed_logins", "logged_in", "num_compromised",
-    "root_shell", "su_attempted", "num_root", "num_file_creations",
-    "num_shells", "num_access_files", "num_outbound_cmds",
-    "is_host_login", "is_guest_login", "count", "srv_count",
-    "serror_rate", "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
-    "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate",
-    "dst_host_count", "dst_host_srv_count", "dst_host_same_srv_rate",
-    "dst_host_diff_srv_rate", "dst_host_same_src_port_rate",
-    "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
-    "dst_host_srv_serror_rate", "dst_host_rerror_rate",
-    "dst_host_srv_rerror_rate", "attack_type", "difficulty_level",
-]
+DATASET_DIR = os.path.join(os.path.dirname(__file__), "dataset")
+TARGET_COL = "label"
 
-# Categorical feature columns (will be label-encoded)
-CATEGORICAL_COLS = ["protocol_type", "service", "flag"]
+# We will sample N rows from each file to prevent MemoryError (e.g. 150k per file)
+ROWS_PER_FILE = 150000 
 
-# Target column
-TARGET_COL = "attack_type"
-
-# Columns to drop (unused)
-DROP_COLS = ["difficulty_level"]
+def clean_labels(label: str) -> str:
+    """Normalizes noisy dataset labels."""
+    label = str(label).strip()
+    # Handle strange unicode replacement chars just in case
+    label = label.encode('ascii', 'ignore').decode() 
+    if "BENIGN" in label or "Normal" in label:
+        return "normal"
+    elif "Web Attack" in label:
+        return "web_attack"
+    elif "Patator" in label or "Brute Force" in label:
+        return "bruteforce"
+    elif "DoS" in label or "DDoS" in label or "Heartbleed" in label:
+        return "ddos"
+    elif "PortScan" in label:
+        return "portscan"
+    elif "Bot" in label:
+        return "botnet"
+    elif "Infiltration" in label:
+        return "infiltration"
+    else:
+        return label.lower()
 
 # ---------------------------------------------------------------------------
-# 2. Load dataset
+# 2. Load and merge datasets
 # ---------------------------------------------------------------------------
-
-def load_dataset(filepath: str) -> pd.DataFrame:
-    """Load the NSL-KDD training file into a DataFrame."""
-    if not os.path.exists(filepath):
-        print(f"\n[ERROR] Dataset not found at: {filepath}")
-        print("Please download KDDTrain+.txt from:")
-        print("  https://www.unb.ca/cic/datasets/nsl.html")
-        print("and place it in the same directory as train_model.py.\n")
+def load_datasets() -> pd.DataFrame:
+    files = glob.glob(os.path.join(DATASET_DIR, "*.csv"))
+    if not files:
+        print(f"[ERROR] No CSV files found in {DATASET_DIR}")
         sys.exit(1)
-
-    print(f"[INFO] Loading dataset from: {filepath}")
-    df = pd.read_csv(filepath, header=None, names=COL_NAMES)
-    print(f"[INFO] Dataset shape: {df.shape}")
+        
+    dfs = []
+    print(f"[INFO] Found {len(files)} CSV files. Loading up to {ROWS_PER_FILE} rows each...")
+    for f in files:
+        try:
+            print(f"       -> Reading {os.path.basename(f)}...")
+            df_part = pd.read_csv(f, nrows=ROWS_PER_FILE, low_memory=False)
+            
+            # Clean column names immediately (strip whitespace)
+            df_part.columns = df_part.columns.str.strip().str.lower()
+            
+            # Rename the target column if it's named 'label' (case insensitive match)
+            if 'label' in df_part.columns:
+                df_part.rename(columns={'label': TARGET_COL}, inplace=True)
+            
+            dfs.append(df_part)
+        except Exception as e:
+            print(f"       -> [WARN] Error reading {f}: {e}")
+            
+    df = pd.concat(dfs, ignore_index=True)
+    print(f"[INFO] Merged dataset shape: {df.shape}")
     return df
-
 
 # ---------------------------------------------------------------------------
 # 3. Preprocess
 # ---------------------------------------------------------------------------
-
 def preprocess(df: pd.DataFrame):
-    """
-    Preprocess the NSL-KDD DataFrame:
-      - Drop unnecessary columns
-      - Label-encode categorical features
-      - Return features (X), labels (y), and encoder dict
-    """
-    # Drop unused columns
-    df = df.drop(columns=DROP_COLS, errors="ignore")
-
-    # Normalise attack labels (strip trailing dot that some variants include)
-    df[TARGET_COL] = df[TARGET_COL].str.lower().str.strip().str.rstrip(".")
-
-    # Encode categorical feature columns
-    encoders = {}
-    for col in CATEGORICAL_COLS:
-        le = LabelEncoder()
-        df[col] = le.fit_transform(df[col].astype(str))
-        encoders[col] = le
-        print(f"[INFO] Encoded column '{col}' — {len(le.classes_)} unique values")
-
-    # Separate features and target
+    print("[INFO] Preprocessing data...")
+    
+    # 1. Drop the explicit port/IP columns if present, as they shouldn't purely dictate attacks
+    cols_to_drop = [c for c in df.columns if 'ip' in c or 'port' in c]
+    df = df.drop(columns=cols_to_drop, errors="ignore")
+    
+    # 2. Handle Infinity / NaNs
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna(0, inplace=True)
+    
+    # 3. Clean Labels
+    df[TARGET_COL] = df[TARGET_COL].apply(clean_labels)
+    
+    # 4. Filter out any garbage labels that are left as empty
+    df = df[df[TARGET_COL] != ""]
+    
+    # 5. Label Encode the Target
+    label_encoder = LabelEncoder()
+    df[TARGET_COL] = label_encoder.fit_transform(df[TARGET_COL])
+    print(f"[INFO] Class mapping: {dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))}")
+    
+    # Ensure all remaining columns are numeric
     X = df.drop(columns=[TARGET_COL])
     y = df[TARGET_COL]
-
-    print(f"[INFO] Feature matrix shape : {X.shape}")
-    print(f"[INFO] Unique attack classes : {sorted(y.unique())}")
-
+    
+    # For any categorical features accidentally left in CICIDS2017, convert to numeric or drop
+    for col in X.columns:
+        if X[col].dtype == object:
+            try:
+                X[col] = pd.to_numeric(X[col])
+            except:
+                X.drop(columns=[col], inplace=True)
+                
+    encoders = {'target': label_encoder}
     return X, y, encoders
 
-
 # ---------------------------------------------------------------------------
-# 4. Train model
+# 4. Train Model
 # ---------------------------------------------------------------------------
-
-def train(X_train, y_train) -> RandomForestClassifier:
-    """Train a RandomForestClassifier."""
-    print("[INFO] Training Random Forest Classifier …")
-    model = RandomForestClassifier(
-        n_estimators=100,   # number of decision trees
-        max_depth=20,       # prevents over-fitting while keeping accuracy
+def train(X_train, y_train) -> XGBClassifier:
+    print("[INFO] Training XGBoost Classifier...")
+    model = XGBClassifier(
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
         random_state=42,
-        n_jobs=-1,          # use all CPU cores
+        n_jobs=-1,
+        tree_method="hist",  # faster histogram-based training
     )
     model.fit(X_train, y_train)
     print("[INFO] Training complete.")
     return model
 
-
 # ---------------------------------------------------------------------------
 # 5. Evaluate
 # ---------------------------------------------------------------------------
-
-def evaluate(model, X_test, y_test):
-    """Print accuracy and per-class report."""
+def evaluate(model, X_test, y_test, encoders):
+    print("[INFO] Evaluating Model...")
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
     print(f"\n[RESULT] Accuracy: {acc * 100:.2f}%\n")
-    print("[RESULT] Classification Report:")
-    print(classification_report(y_test, y_pred, zero_division=0))
+    
+    # Map back to strings for the report
+    target_le = encoders['target']
+    target_names = target_le.classes_
+    try:
+        print("[RESULT] Classification Report:")
+        print(classification_report(y_test, y_pred, target_names=target_names, zero_division=0))
+    except Exception as e:
+        print(f"[RESULT] Could not print detailed report: {e}")
+        
     return acc
 
-
 # ---------------------------------------------------------------------------
-# 6. Save artefacts
+# 6. Save Artifacts
 # ---------------------------------------------------------------------------
-
 def save_artifacts(model, encoders, columns, out_dir: str = "."):
-    """Persist model, encoders, and column list to disk."""
     model_path    = os.path.join(out_dir, "attack_model.pkl")
     encoders_path = os.path.join(out_dir, "encoders.pkl")
     columns_path  = os.path.join(out_dir, "columns.pkl")
 
     with open(model_path, "wb") as f:
         pickle.dump(model, f)
-    print(f"[SAVED] Model      → {model_path}")
+    print(f"[SAVED] Model      -> {model_path}")
 
     with open(encoders_path, "wb") as f:
         pickle.dump(encoders, f)
-    print(f"[SAVED] Encoders   → {encoders_path}")
+    print(f"[SAVED] Encoders   -> {encoders_path}")
 
     with open(columns_path, "wb") as f:
         pickle.dump(list(columns), f)
-    print(f"[SAVED] Columns    → {columns_path}")
-
+    print(f"[SAVED] Columns    -> {columns_path}")
 
 # ---------------------------------------------------------------------------
-# 7. Main entry-point
+# 7. Main Pipeline
 # ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
-    DATASET_FILE = os.path.join(os.path.dirname(__file__), "KDDTrain+.txt")
-
-    # --- Load ---
-    df = load_dataset(DATASET_FILE)
-
-    # --- Preprocess ---
+    df = load_datasets()
     X, y, encoders = preprocess(df)
-
-    # --- Split ---
+    
+    print(f"[INFO] Splitting dataset... Features: {X.shape[1]}")
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
-    print(f"[INFO] Train size: {len(X_train)} | Test size: {len(X_test)}")
-
-    # --- Train ---
+    
     model = train(X_train, y_train)
-
-    # --- Evaluate ---
-    evaluate(model, X_test, y_test)
-
-    # --- Save ---
+    evaluate(model, X_test, y_test, encoders)
+    
     save_artifacts(model, encoders, X.columns, out_dir=os.path.dirname(__file__) or ".")
-
-    print("\n[DONE] All artefacts saved. Run app.py to start the Flask server.\n")
+    print("\n[DONE] XGBoost artifacts successfully generated.")

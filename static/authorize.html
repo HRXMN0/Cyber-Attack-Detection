@@ -7,10 +7,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
-    :root{--neon:#00e5ff;--green:#00ff88;--red:#ff1744;--bg:#060b18;--panel:rgba(8,18,38,0.9);--border:rgba(0,229,255,0.18);}
-    body{font-family:'Inter',sans-serif;background:var(--bg);color:#e8eaf6;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:24px;}
-    /* Grid bg */
-    body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);background-size:44px 44px;animation:gridScroll 25s linear infinite;}
+    :root{--neon:#4f46e5;--green:#10b981;--red:#ef4444;--bg:#0f172a;--panel:#1e293b;--border:rgba(255,255,255,0.08);}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:#f8fafc;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:24px;}
+    /* Grid bg removed */
+    body::before{display:none;}
     @keyframes gridScroll{to{background-position:44px 44px;}}
     /* Orbs */
     .orb{position:fixed;border-radius:50%;filter:blur(90px);opacity:.15;animation:float 9s ease-in-out infinite;z-index:0;}
@@ -123,12 +123,6 @@
       </div>
       <button type="submit" class="btn-verify" id="verifyBtn" disabled>🔒 Verify &amp; Authorize</button>
     </form>
-
-    <div class="divider"><span>or</span></div>
-
-    <a href="/auth/skip-authorize" class="skip-link">
-      <span>👤</span> I'm a SOC Admin — Skip &amp; access all sites
-    </a>
   </div>
 
   <script>

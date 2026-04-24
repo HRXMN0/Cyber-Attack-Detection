@@ -378,7 +378,7 @@ class NetworkGraph {
       { id:'cl1',   label:'Client-1',   type:'client',   x:W*0.2,  y:H*0.88 },
       { id:'cl2',   label:'Client-2',   type:'client',   x:W*0.8,  y:H*0.88 },
     ];
-    const COLOR = { firewall:'#00e5ff', router:'#aa00ff', server:'#00ff88', attacker:'#ff1744', bot:'#ff6d00', client:'#8892b0' };
+    const COLOR = { firewall:'#4f46e5', router:'#aa00ff', server:'#00ff88', attacker:'#ff1744', bot:'#ff6d00', client:'#8892b0' };
     this.nodes = NODE_DEFS.map(n => ({
       ...n, vx:0, vy:0, threat:0,
       color: COLOR[n.type],
@@ -424,7 +424,7 @@ class NetworkGraph {
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = isAttack ? `rgba(255,23,68,${pulse*0.6})` : `rgba(0,229,255,${pulse*0.3})`;
+      ctx.strokeStyle = isAttack ? `rgba(255,23,68,${pulse*0.6})` : `rgba(79,70,229,${pulse*0.3})`;
       ctx.lineWidth   = isAttack ? 1.2 : 0.8;
       ctx.stroke();
       // Animated packet dot along edge
@@ -432,7 +432,7 @@ class NetworkGraph {
       const dx = b.x, dy = b.y, sx = a.x, sy = a.y;
       ctx.beginPath();
       ctx.arc(sx + (dx-sx)*prog, sy+(dy-sy)*prog, 2, 0, Math.PI*2);
-      ctx.fillStyle = isAttack ? 'rgba(255,23,68,0.9)' : 'rgba(0,229,255,0.7)';
+      ctx.fillStyle = isAttack ? 'rgba(255,23,68,0.9)' : 'rgba(79,70,229,0.7)';
       ctx.fill();
     });
 
@@ -457,7 +457,7 @@ class NetworkGraph {
       ctx.shadowBlur = 0;
       // Label
       ctx.fillStyle = 'rgba(136,146,176,0.8)';
-      ctx.font      = '8px Share Tech Mono, monospace';
+      ctx.font      = '8px Inter, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(n.label, n.x, n.y + r + 10);
     });
@@ -619,7 +619,7 @@ function initCharts() {
     type: 'line', data: {
       labels: trafficHistory.map((_, i) => ''),
       datasets:[{ label:'Requests/s', data:[...trafficHistory],
-        borderColor:'#00e5ff', backgroundColor:'rgba(0,229,255,0.08)',
+        borderColor:'#4f46e5', backgroundColor:'rgba(79,70,229,0.08)',
         borderWidth:1.5, fill:true, tension:0.4, pointRadius:0,
       }],
     },
@@ -764,7 +764,7 @@ function _renderContextBanner(isDemo, siteFilter, totalEvts, attackEvts) {
     el.style.cssText = [
       'position:fixed','bottom:20px','right:20px','z-index:9000',
       'padding:8px 16px 8px 12px','border-radius:10px',
-      'font-family:"Share Tech Mono",monospace','font-size:.68rem',
+      'font-family:"Inter",monospace','font-size:.68rem',
       'backdrop-filter:blur(10px)','border:1px solid',
       'display:flex','align-items:center','gap:8px','cursor:default',
       'transition:opacity .3s','box-shadow:0 4px 20px rgba(0,0,0,.4)',
@@ -772,10 +772,10 @@ function _renderContextBanner(isDemo, siteFilter, totalEvts, attackEvts) {
     document.body.appendChild(el);
   }
   if (isDemo) {
-    el.style.background = 'rgba(0,229,255,0.1)';
-    el.style.borderColor = 'rgba(0,229,255,0.3)';
-    el.style.color       = '#00e5ff';
-    el.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:#00e5ff;display:inline-block;box-shadow:0 0 6px #00e5ff;"></span>
+    el.style.background = 'rgba(79,70,229,0.1)';
+    el.style.borderColor = 'rgba(79,70,229,0.3)';
+    el.style.color       = '#4f46e5';
+    el.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:#4f46e5;display:inline-block;box-shadow:0 0 6px #4f46e5;"></span>
       ADMIN VIEW &nbsp;·&nbsp; ALL SITES &nbsp;·&nbsp;
       <strong>${totalEvts}</strong> events &nbsp;
       <span style="color:#ff6d00;">${attackEvts} attacks</span>`;
@@ -829,7 +829,7 @@ function updateTable(logs, isDemo) {
       const th = document.createElement('th');
       th.className = 'col-company';
       th.textContent = 'COMPANY';
-      th.style.cssText = 'color:#00e5ff;font-size:.58rem;';
+      th.style.cssText = 'color:#4f46e5;font-size:.58rem;';
       thead.insertBefore(th, thead.children[2]); // insert before TYPE column
     }
   } else {
@@ -854,7 +854,7 @@ function updateTable(logs, isDemo) {
     // Company badge for admin/demo mode
     const siteId    = e.site_id || '';
     const siteLabel = isDemo && siteId
-      ? `<span style="background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.2);border-radius:5px;padding:1px 6px;font-size:.55rem;color:#00e5ff;font-family:'Share Tech Mono',monospace;white-space:nowrap;">${siteId}</span>`
+      ? `<span style="background:rgba(79,70,229,.1);border:1px solid rgba(79,70,229,.2);border-radius:5px;padding:1px 6px;font-size:.55rem;color:#4f46e5;font-family:'Inter',monospace;white-space:nowrap;">${siteId}</span>`
       : '';
 
     // Country flag from DB or attacker data
@@ -1131,7 +1131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('userNameDisplay').textContent = u.name || 'Analyst';
     const role = u.site_id ? u.site_id.toUpperCase() : (u.role||'analyst').toUpperCase();
     document.getElementById('userRoleDisplay').textContent = role;
-    if (u.site_id) document.getElementById('userRoleDisplay').style.color = '#00e5ff';
+    if (u.site_id) document.getElementById('userRoleDisplay').style.color = '#4f46e5';
     aiTerm.add('ok', `Authenticated: ${u.name} (${role}) — session active`);
   }).catch(() => {});
 
@@ -1212,7 +1212,7 @@ class SiteAlertsEngine {
 
   setEmpty() {
     this.el.innerHTML = `<div class="empty-state-sm">No attacks from monitored sites yet.<br>
-      <a href="/embed" style="color:#00e5ff;font-size:.65rem;text-decoration:none;">→ Deploy agent to a website</a>
+      <a href="/embed" style="color:#4f46e5;font-size:.65rem;text-decoration:none;">→ Deploy agent to a website</a>
     </div>`;
   }
 
@@ -1233,7 +1233,7 @@ class SiteAlertsEngine {
 
     const card = document.createElement('div');
     card.dataset.alertId = a.id;
-    const _bg = sev === 'critical' ? '255,23,68' : sev === 'high' ? '255,109,0' : '0,229,255';
+    const _bg = sev === 'critical' ? '255,23,68' : sev === 'high' ? '255,109,0' : '79,70,229';
     card.style.cssText = 'background:rgba(' + _bg + ',0.05);border:1px solid ' + clr + '33;border-left:3px solid ' + clr + ';border-radius:10px;padding:10px 12px;cursor:pointer;transition:.2s;animation:blockIn .35s ease;flex-shrink:0;';
     if (sev === 'critical' || sev === 'high') {
       card.style.background = `rgba(255,23,68,0.07)`;
@@ -1242,14 +1242,14 @@ class SiteAlertsEngine {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <div style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:1rem;">${a.flag||'🌐'}</span>
-          <span style="font-family:'Share Tech Mono',monospace;font-size:.75rem;color:${clr};font-weight:700;">${a.ip||'—'}</span>
+          <span style="font-family:'Inter',monospace;font-size:.75rem;color:${clr};font-weight:700;">${a.ip||'—'}</span>
           <span style="font-size:.58rem;background:${clr}22;color:${clr};border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:.5px;">${(a.severity||'?').toUpperCase()}</span>
         </div>
-        <span style="font-size:.58rem;color:#4a6080;font-family:'Share Tech Mono',monospace;">${time_}</span>
+        <span style="font-size:.58rem;color:#4a6080;font-family:'Inter',monospace;">${time_}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:.66rem;">
         <div style="color:#4a6080;">Attack → <span style="color:#e8eaf6;">${(a.attack||'normal').toUpperCase()}</span></div>
-        <div style="color:#4a6080;">Site → <span style="color:#00e5ff;">${a.site_id||'—'}</span></div>
+        <div style="color:#4a6080;">Site → <span style="color:#4f46e5;">${a.site_id||'—'}</span></div>
         <div style="color:#4a6080;">Path → <span style="color:#8892b0;font-family:monospace;">${path}</span></div>
         <div style="color:#4a6080;">Location → <span style="color:#8892b0;">${city}</span></div>
         <div style="color:#4a6080;">ISP → <span style="color:#8892b0;">${org}</span></div>
@@ -1287,15 +1287,15 @@ function showAttackerModal(a) {
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
         <span style="font-size:2rem;">${a.flag||'🌐'}</span>
         <div>
-          <div style="font-family:'Orbitron',sans-serif;font-size:.7rem;letter-spacing:2px;color:#4a6080;margin-bottom:2px;">ATTACKER PROFILE</div>
-          <div style="font-size:1.3rem;font-weight:800;font-family:'Share Tech Mono',monospace;color:${clr};">${a.ip||'—'}</div>
+          <div style="font-family:'Inter',sans-serif;font-size:.7rem;letter-spacing:2px;color:#4a6080;margin-bottom:2px;">ATTACKER PROFILE</div>
+          <div style="font-size:1.3rem;font-weight:800;font-family:'Inter',monospace;color:${clr};">${a.ip||'—'}</div>
         </div>
         <div style="margin-left:auto;text-align:right;">
-          <div style="background:${clr}22;color:${clr};border:1px solid ${clr}44;border-radius:8px;padding:4px 12px;font-family:'Orbitron',sans-serif;font-size:.62rem;font-weight:700;letter-spacing:1.5px;">${(a.severity||'?').toUpperCase()}</div>
+          <div style="background:${clr}22;color:${clr};border:1px solid ${clr}44;border-radius:8px;padding:4px 12px;font-family:'Inter',sans-serif;font-size:.62rem;font-weight:700;letter-spacing:1.5px;">${(a.severity||'?').toUpperCase()}</div>
           <div style="font-size:.6rem;color:#4a6080;margin-top:4px;">${isBlocked?'🚫 QUARANTINED':'✅ MONITORING'}</div>
         </div>
       </div>
-      <div style="height:1px;background:rgba(0,229,255,.08);margin:14px 0;"></div>
+      <div style="height:1px;background:rgba(79,70,229,.08);margin:14px 0;"></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
@@ -1308,19 +1308,19 @@ function showAttackerModal(a) {
       ${modalRow('↩️ Referrer',      a.referer || '—')}
       ${modalRow('📊 Bytes-In',      a.bytes_in ? (a.bytes_in + ' B') : '—')}
       ${modalRow('📍 Coordinates',   a.lat && a.lon ? `${parseFloat(a.lat).toFixed(2)}, ${parseFloat(a.lon).toFixed(2)}` : '—')}
-      ${modalRow('🌐 Site Target',   a.site_id || '—', '#00e5ff')}
+      ${modalRow('🌐 Site Target',   a.site_id || '—', '#4f46e5')}
       ${modalRow('⏱ Timestamp',     time_)}
       ${modalRow('🖥 Status',        isBlocked ? '🚫 Blocked' : '✅ Monitoring', isBlocked ? '#ff1744' : '#00ff88')}
     </div>
 
     <div style="background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 16px;margin-bottom:16px;">
-      <div style="font-family:'Share Tech Mono',monospace;font-size:.58rem;color:#4a6080;letter-spacing:1.5px;margin-bottom:6px;text-transform:uppercase;">User-Agent</div>
-      <div style="font-family:'Share Tech Mono',monospace;font-size:.7rem;color:#8892b0;word-break:break-all;line-height:1.5;">${a.user_agent||'—'}</div>
+      <div style="font-family:'Inter',monospace;font-size:.58rem;color:#4a6080;letter-spacing:1.5px;margin-bottom:6px;text-transform:uppercase;">User-Agent</div>
+      <div style="font-family:'Inter',monospace;font-size:.7rem;color:#8892b0;word-break:break-all;line-height:1.5;">${a.user_agent||'—'}</div>
     </div>
 
     <div style="display:flex;gap:10px;">
-      <button onclick="copyAttackerIP('${a.ip}')" style="flex:1;padding:9px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);border-radius:9px;color:#00e5ff;font-family:'Share Tech Mono',monospace;font-size:.72rem;font-weight:700;cursor:pointer;letter-spacing:1px;">📋 COPY IP</button>
-      ${!isBlocked ? `<button onclick="blockFromModal('${a.ip}')" style="flex:1;padding:9px;background:rgba(255,23,68,.12);border:1px solid rgba(255,23,68,.35);border-radius:9px;color:#ff1744;font-family:'Share Tech Mono',monospace;font-size:.72rem;font-weight:700;cursor:pointer;letter-spacing:1px;">🔒 BLOCK IP</button>` : ''}
+      <button onclick="copyAttackerIP('${a.ip}')" style="flex:1;padding:9px;background:rgba(79,70,229,.1);border:1px solid rgba(79,70,229,.3);border-radius:9px;color:#4f46e5;font-family:'Inter',monospace;font-size:.72rem;font-weight:700;cursor:pointer;letter-spacing:1px;">📋 COPY IP</button>
+      ${!isBlocked ? `<button onclick="blockFromModal('${a.ip}')" style="flex:1;padding:9px;background:rgba(255,23,68,.12);border:1px solid rgba(255,23,68,.35);border-radius:9px;color:#ff1744;font-family:'Inter',monospace;font-size:.72rem;font-weight:700;cursor:pointer;letter-spacing:1px;">🔒 BLOCK IP</button>` : ''}
       <button onclick="document.getElementById('attackerModal').style.display='none'" style="padding:9px 16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:9px;color:#8892b0;font-size:.72rem;cursor:pointer;">CLOSE</button>
     </div>
   `;
@@ -1332,7 +1332,7 @@ function showAttackerModal(a) {
 function modalRow(label, value, valColor) {
   return `<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;overflow:hidden;">
     <div style="font-size:.58rem;color:#4a6080;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;">${label}</div>
-    <div style="font-family:'Share Tech Mono',monospace;font-size:.74rem;font-weight:600;color:${valColor||'#e8eaf6'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${value}">${value||'—'}</div>
+    <div style="font-family:'Inter',monospace;font-size:.74rem;font-weight:600;color:${valColor||'#e8eaf6'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${value}">${value||'—'}</div>
   </div>`;
 }
 

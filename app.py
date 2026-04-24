@@ -178,32 +178,28 @@ def adaptive_action(ip: str, attack: str, severity: str, site_id: str = "local")
         return "Monitoring"
 
 
-def build_feature_row(ip: str, protocol: str = "tcp",
-                      service: str = "http", flag: str = "SF") -> pd.DataFrame:
+def build_feature_row(ip: str, **kwargs) -> pd.DataFrame:
     failed = db_get_failed_count(ip)
     row = {col: 0 for col in columns}
-    row["duration"]          = 0
-    row["src_bytes"]         = 215
-    row["dst_bytes"]         = 45076
-    row["land"]              = 0
-    row["wrong_fragment"]    = 0
-    row["urgent"]            = 0
-    row["hot"]               = 0
-    row["num_failed_logins"] = failed
-    row["logged_in"]         = 0
-    row["count"]             = max(failed, 1)
-    row["srv_count"]         = max(failed, 1)
-    row["same_srv_rate"]     = 1.0
-    row["serror_rate"]       = 0.0
-    row["rerror_rate"]       = min(1.0, failed / 10)
-
-    for col, le in encoders.items():
-        val_map = {"protocol_type": protocol, "service": service, "flag": flag}
-        raw_val = val_map.get(col, "tcp")
-        if raw_val in le.classes_:
-            row[col] = int(le.transform([raw_val])[0])
-        else:
-            row[col] = 0
+    
+    # Map basic heuristics to fake flow characteristics suitable for anomaly inference
+    # A real IDS would use packet capture, but we map simple web telemetry here.
+    if "flow duration" in row:
+        row["flow duration"] = 100000 + (failed * 50000)
+    if "total fwd packets" in row:
+        row["total fwd packets"] = max(failed, 1) * 2
+    if "total backward packets" in row:
+        row["total backward packets"] = 1
+    if "total length of fwd packets" in row:
+        row["total length of fwd packets"] = kwargs.get("bytes_in", 215)
+    if "fwd packet length max" in row:
+        row["fwd packet length max"] = kwargs.get("bytes_in", 215)
+    
+    # Increase anomaly flags if failed attempts is high (simulating bruteforce/portscan)
+    if failed > 5 and "fwd psh flags" in row:
+        row["fwd psh flags"] = 1
+    if failed > 10 and "syn flag count" in row:
+        row["syn flag count"] = 1
 
     return pd.DataFrame([row])[columns]
 
@@ -400,14 +396,6 @@ def auth_authorize():
     return render_template("authorize.html")
 
 
-@app.route("/auth/skip-authorize")
-@login_required
-def auth_skip_authorize():
-    """SOC Admin skips site authorization — gains access to all sites."""
-    flash("🛡️ SOC Admin mode — you have full access to all monitored sites.", "success")
-    return redirect(url_for("index"))
-
-
 @app.route("/auth/logout")
 @login_required
 def auth_logout():
@@ -494,8 +482,12 @@ def login():
         }), 403
 
     feature_df  = build_feature_row(ip)
-    prediction  = model.predict(feature_df)[0]
-    attack_type = str(prediction).lower().strip()
+    pred_idx    = model.predict(feature_df)[0]
+    if "target" in encoders:
+        raw_pred = encoders["target"].inverse_transform([pred_idx])[0]
+    else:
+        raw_pred = str(pred_idx)
+    attack_type = str(raw_pred).lower().strip()
     severity    = get_severity(attack_type)
     response    = get_response(severity)
     adaptive_msg= adaptive_action(ip, attack_type, severity, site_id="local")
@@ -593,8 +585,12 @@ def agent_report():
 
     # --- ML prediction ---
     feature_df  = build_feature_row(ip)
-    prediction  = model.predict(feature_df)[0]
-    attack_type = str(prediction).lower().strip()
+    pred_idx    = model.predict(feature_df)[0]
+    if "target" in encoders:
+        raw_pred = encoders["target"].inverse_transform([pred_idx])[0]
+    else:
+        raw_pred = str(pred_idx)
+    attack_type = str(raw_pred).lower().strip()
     severity    = get_severity(attack_type)
 
     # --- Adaptive & auto-block ---
@@ -787,10 +783,10 @@ def api_live_attacks():
         # Fetch blocked IPs for this scope (to set is_blocked flag)
         if site_id:
             blocked_rows = conn.execute(
-                "SELECT ip FROM blocked_ips WHERE site_id = ?", (site_id,)
+                "SELECT ip FROM site_blocked_ips WHERE site_id = ?", (site_id,)
             ).fetchall()
         else:
-            blocked_rows = conn.execute("SELECT ip FROM blocked_ips").fetchall()
+            blocked_rows = conn.execute("SELECT ip FROM site_blocked_ips").fetchall()
         blocked_set = {r["ip"] for r in blocked_rows}
 
     results = []

@@ -6,15 +6,15 @@
   <title>Create Account — AI Cyber SOC | Security Operations Center</title>
   <meta name="description" content="Join the AI Cyber Attack Detection Platform — Secure multi-tenant SOC access for government and enterprise security teams"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
     :root{
-      --neon:#00e5ff;--green:#00ff88;--red:#ff1744;--purple:#aa00ff;
-      --bg:#020409;--card:rgba(4,12,28,0.9);--border:rgba(0,229,255,0.12);
-      --text:#e8eaf6;--sub:#8892b0;--dim:#3a4a5a;
-      --mono:'Share Tech Mono',monospace;
-      --display:'Orbitron',sans-serif;
+      --neon:#4f46e5;--green:#10b981;--red:#ef4444;--purple:#8b5cf6;
+      --bg:#0f172a;--card:#1e293b;--border:rgba(255,255,255,0.08);
+      --text:#f8fafc;--sub:#94a3b8;--dim:#64748b;
+      --mono:'Inter',monospace;
+      --display:'Inter',sans-serif;
       --sans:'Inter',sans-serif;
     }
     html,body{width:100%;min-height:100vh;}
@@ -24,8 +24,8 @@
     .bg-grid{
       position:fixed;inset:0;z-index:0;
       background-image:
-        linear-gradient(rgba(0,229,255,.03) 1px,transparent 1px),
-        linear-gradient(90deg,rgba(0,229,255,.03) 1px,transparent 1px);
+        linear-gradient(rgba(79,70,229,.03) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(79,70,229,.03) 1px,transparent 1px);
       background-size:48px 48px;animation:gridMove 18s linear infinite;
     }
     @keyframes gridMove{0%{background-position:0 0}100%{background-position:48px 48px}}
@@ -46,12 +46,12 @@
     }
     .left-side::after{
       content:'';position:absolute;top:0;bottom:0;right:470px;width:1px;
-      background:linear-gradient(180deg,transparent,rgba(0,229,255,.3),rgba(170,0,255,.3),transparent);
+      background:linear-gradient(180deg,transparent,rgba(79,70,229,.3),rgba(170,0,255,.3),transparent);
     }
 
     .soc-badge{
       display:inline-flex;align-items:center;gap:8px;
-      background:linear-gradient(135deg,rgba(0,229,255,.06),rgba(170,0,255,.06));
+      background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(170,0,255,.06));
       border:1px solid rgba(170,0,255,.2);border-radius:99px;
       padding:6px 16px;font-size:.65rem;font-weight:700;
       color:#d580ff;letter-spacing:2px;text-transform:uppercase;
@@ -62,7 +62,7 @@
 
     .left-title{font-family:var(--display);font-size:2.2rem;font-weight:900;line-height:1.15;letter-spacing:1px;margin-bottom:16px;}
     .left-title .line1{display:block;color:#e8eaf6;}
-    .left-title .line2{display:block;background:linear-gradient(135deg,#aa00ff,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .left-title .line2{display:block;background:linear-gradient(135deg,#aa00ff,#4f46e5);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
     .left-desc{color:var(--sub);font-size:.88rem;line-height:1.7;max-width:420px;margin-bottom:40px;}
 
     /* Feature list */
@@ -90,7 +90,7 @@
       background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
       display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;
     }
-    .si-step.active .si-num{background:rgba(0,229,255,.15);border-color:rgba(0,229,255,.35);color:var(--neon);}
+    .si-step.active .si-num{background:rgba(79,70,229,.15);border-color:rgba(79,70,229,.35);color:var(--neon);}
     .si-arrow{color:var(--dim);font-size:.8rem;}
 
     /* ── RIGHT SIDE — Signup form ─────────────────── */
@@ -133,7 +133,7 @@
       transition:border-color .2s,box-shadow .2s;outline:none;
     }
     input[type="text"].no-icon,input.no-icon{padding-left:14px;}
-    input:focus{border-color:rgba(0,229,255,.5);box-shadow:0 0 0 3px rgba(0,229,255,.08);}
+    input:focus{border-color:rgba(79,70,229,.5);box-shadow:0 0 0 3px rgba(79,70,229,.08);}
     input::placeholder{color:#2a3a4a;}
     input.error-field{border-color:rgba(255,23,68,.4);box-shadow:0 0 0 3px rgba(255,23,68,.06);}
 
@@ -155,15 +155,15 @@
 
     /* Step 2 notice */
     .step2-notice{
-      background:linear-gradient(135deg,rgba(0,229,255,.04),rgba(0,255,136,.04));
-      border:1px solid rgba(0,229,255,.12);border-radius:11px;padding:14px 16px;
+      background:linear-gradient(135deg,rgba(79,70,229,.04),rgba(0,255,136,.04));
+      border:1px solid rgba(79,70,229,.12);border-radius:11px;padding:14px 16px;
       font-size:.76rem;color:#8892b0;margin-bottom:20px;line-height:1.6;
     }
     .step2-notice strong{color:var(--neon);}
     .step2-notice .s2-step{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.72rem;}
     .s2-num{
-      min-width:20px;height:20px;border-radius:50%;background:rgba(0,229,255,.15);
-      border:1px solid rgba(0,229,255,.3);display:flex;align-items:center;justify-content:center;
+      min-width:20px;height:20px;border-radius:50%;background:rgba(79,70,229,.15);
+      border:1px solid rgba(79,70,229,.3);display:flex;align-items:center;justify-content:center;
       font-size:.58rem;font-weight:700;color:var(--neon);flex-shrink:0;
     }
 
